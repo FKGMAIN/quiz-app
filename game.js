@@ -719,6 +719,19 @@ class SoccerWordGapGame {
     const list = document.getElementById('realm-cards-list');
     list.innerHTML = '<div style="color: var(--text-muted); text-align: center;">Loading categories...</div>';
 
+    const categoryIcons = {
+      'World Cup Epics': '🏆',
+      'World Cup Legends': '👑',
+      'European Championships': '🇪🇺',
+      'Champions League Miracles': '⭐',
+      'Europa League & UEFA Cup': '🥈',
+      'African Cup of Nations': '🌍',
+      'Tactics & Iconic Plays': '⚡',
+      'Historic Stadiums': '🏟️',
+      'Underdogs & Fairytales': '🛡️',
+      'Trophies & Awards': '🥇'
+    };
+
     try {
       const res = await fetch('/api/categories');
       const categories = await res.json();
@@ -730,10 +743,10 @@ class SoccerWordGapGame {
       if (!this.selectedCategory) allCard.classList.add('active');
       allCard.innerHTML = `
         <div class="realm-card-left">
-          <div class="realm-card-icon">🌍</div>
+          <div class="realm-card-icon">⚽</div>
           <div>
-            <div class="realm-card-title">All Historic Eras</div>
-            <div class="realm-card-count">Full 120+ football word library</div>
+            <div class="realm-card-title">All Historic Tournaments</div>
+            <div class="realm-card-count">Full 190+ football question library</div>
           </div>
         </div>
         <span style="font-size: 14px; color: var(--gold-400);">▶</span>
@@ -750,9 +763,10 @@ class SoccerWordGapGame {
         const card = document.createElement('div');
         card.className = 'realm-card';
         if (this.selectedCategory === cat.category) card.classList.add('active');
+        const icon = categoryIcons[cat.category] || '⚽';
         card.innerHTML = `
           <div class="realm-card-left">
-            <div class="realm-card-icon">⚽</div>
+            <div class="realm-card-icon">${icon}</div>
             <div>
               <div class="realm-card-title">${cat.category}</div>
               <div class="realm-card-count">${cat.count} Historic Words</div>
