@@ -1,0 +1,463 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <title>Pitch Legends: Historic Football Gap Puzzle</title>
+  <meta name="description" content="Test your soccer history knowledge! Solve iconic football scenarios and fill in the missing words from historic World Cups, Champions League miracles, and legendary lore.">
+
+  <!-- Typography -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@700;800;900&family=Outfit:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <!-- Ambient background glow on desktop -->
+  <div class="ambient-bg"></div>
+
+  <!-- Desktop floating top bar (View mode switch) -->
+  <div class="desktop-bar" id="desktop-bar">
+    <button id="view-mode-phone" class="active">📱 Mobile View</button>
+    <button id="view-mode-expand">🖥️ Full Stadium View</button>
+    <button id="quick-timer-bar-btn">⏱️ Match Timer (Modify)</button>
+  </div>
+
+  <div class="desktop-wrapper" id="desktop-wrapper">
+    <!-- Simulated Smartphone Shell Container -->
+    <main class="phone-frame" id="phone-frame">
+      <!-- Dynamic Phone Island / Notch -->
+      <div class="phone-island">
+        <div class="island-camera"></div>
+        <div class="island-speaker"></div>
+      </div>
+
+      <!-- Canvas Particle Layer (Sparks, Confetti, Motes) -->
+      <canvas id="fx-canvas"></canvas>
+
+      <!-- Game Inner Viewport -->
+      <div class="game-viewport">
+        <div class="game-content">
+
+          <!-- GAME HUD HEADER -->
+          <header class="hud-header">
+            <div class="hud-top-row">
+              <!-- Tournament Category Selector Pill -->
+              <button class="realm-pill" id="realm-pill-btn" title="Choose Tournament Era & Mode">
+                <span id="hud-realm-icon">🏆</span>
+                <span class="realm-name" id="hud-realm-name">World Cup Epics</span>
+                <span class="realm-step" id="hud-puzzle-step">1/8</span>
+                <span style="font-size: 10px; color: var(--gold-400);">▼</span>
+              </button>
+
+              <!-- Actions (Referee Whistle, Custom Scenario, Settings) -->
+              <div class="hud-actions">
+                <button class="icon-btn" id="whistle-sound-btn" title="Blow Referee Whistle">📢</button>
+                <button class="icon-btn" id="sound-btn" title="Toggle Sound FX">🔊</button>
+                <button class="icon-btn" id="custom-puzzle-btn" title="Create Custom Soccer Scenario">✍️</button>
+                <button class="icon-btn" id="settings-btn" title="Game Settings">⚙️</button>
+              </div>
+            </div>
+
+            <!-- Stats & Modifiable Timer Row -->
+            <div class="hud-stats-row">
+              <!-- Score Counter -->
+              <div class="stat-item">
+                <span class="stat-icon">⚽</span>
+                <div>
+                  <div class="stat-value" id="hud-score">0</div>
+                  <div class="stat-label">Points</div>
+                </div>
+              </div>
+
+              <!-- Modifiable Timer Container (Clickable to customize match time) -->
+              <div class="timer-container" id="timer-hud-btn" title="Click to Modify Match Timer">
+                <div class="timer-svg-wrap">
+                  <svg class="timer-svg" viewBox="0 0 36 36">
+                    <path class="timer-bg-circle" stroke-width="3.5" fill="none"
+                      d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" />
+                    <path class="timer-progress-circle" id="timer-circle" stroke-width="3.5" fill="none"
+                      d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" />
+                  </svg>
+                </div>
+                <div class="timer-text" id="hud-timer-text">45s</div>
+                <div class="timer-edit-badge" title="Modify Timer">✏️</div>
+              </div>
+
+              <!-- Goal Streak -->
+              <div class="streak-badge" id="hud-streak-wrap">
+                <span class="streak-flame">🔥</span>
+                <span class="streak-num" id="hud-streak">x1</span>
+              </div>
+            </div>
+          </header>
+
+          <!-- REFEREE MASCOT STRIP -->
+          <section class="mascot-strip" id="mascot-strip">
+            <div class="mascot-avatar-wrap">
+              <img src="assets/mascot.jpg" alt="Referee Barnaby" class="mascot-avatar" id="mascot-img">
+              <div class="mascot-status-dot"></div>
+            </div>
+            <div class="mascot-bubble">
+              <div class="mascot-name">Referee Barnaby</div>
+              <div id="mascot-speech">Welcome to the pitch! Fill in the missing gaps to solve this historic football scenario!</div>
+            </div>
+          </section>
+
+          <!-- PUZZLE BOARD: HISTORIC SCENARIO WITH MISSING WORDS -->
+          <article class="puzzle-board" id="puzzle-board">
+            <div class="puzzle-title-bar">
+              <div style="display: flex; align-items: center; gap: 8px;">
+                <span class="scenario-year-badge" id="scenario-year">1986</span>
+                <span class="puzzle-title" id="puzzle-title">The Hand & The Century</span>
+              </div>
+              <div class="puzzle-diff" id="puzzle-difficulty">⭐⭐⭐</div>
+            </div>
+
+            <!-- Match Teams Pill -->
+            <div id="match-teams-bar" style="font-size: 11px; font-weight: 700; color: var(--gold-400); text-transform: uppercase; margin-bottom: 8px; letter-spacing: 0.5px;">
+              ⚽ Argentina vs England
+            </div>
+
+            <!-- The Scenario with Interactive Gaps -->
+            <div class="sentence-container" id="sentence-container">
+              <!-- Dynamically populated scenario sentence with slot buttons -->
+            </div>
+
+            <!-- Hint & Assistance Tray -->
+            <div class="hint-bar">
+              <button class="hint-chip" id="hint-clue-btn">
+                <span>💡</span>
+                <span id="hint-clue-text">Tactical Clue</span>
+              </button>
+              <button class="hint-chip" id="hint-letter-btn">
+                <span>🔤</span>
+                <span>1st Letters</span>
+              </button>
+              <button class="hint-chip" id="hint-eliminate-btn">
+                <span>🟥</span>
+                <span>Sub 2 Out</span>
+              </button>
+            </div>
+          </article>
+
+          <!-- WORD BANK TILES (PLAYERS & TACTICAL TERMS) -->
+          <section class="word-bank-section">
+            <div class="word-bank-header">
+              <div class="word-bank-title">Tactical Dugout (Player & Word Bank)</div>
+              <button class="shuffle-btn" id="shuffle-words-btn">🔀 Shuffle</button>
+            </div>
+            <div class="word-bank-grid" id="word-bank-grid">
+              <!-- Dynamically generated word chips -->
+            </div>
+          </section>
+
+          <!-- BOTTOM ACTION CONTROLS -->
+          <div class="action-controls">
+            <button class="game-btn btn-secondary" id="clear-slots-btn">
+              <span>↺</span> Reset
+            </button>
+            <button class="game-btn btn-primary" id="check-answer-btn">
+              <span>⚽</span> Check Scenario
+            </button>
+          </div>
+
+        </div>
+      </div>
+
+      <!-- ================================================================
+           MODAL: MODIFIABLE MATCH TIMER CONFIGURATION
+           ================================================================ -->
+      <div class="game-modal" id="timer-modal">
+        <div class="modal-card">
+          <div class="modal-header">
+            <h2 class="modal-title">⏱️ Match Timer Settings</h2>
+            <button class="modal-close" data-close="timer-modal">✕</button>
+          </div>
+          <div class="modal-body">
+            <p style="font-size: 13px; color: var(--text-muted);">
+              Adjust the match countdown clock. Choose high-intensity stoppage time blitz, standard match pace, or infinite training mode!
+            </p>
+
+            <!-- Quick Presets -->
+            <div style="font-size: 12px; font-weight: 700; color: var(--gold-300); text-transform: uppercase;">Match Pace Presets</div>
+            <div class="timer-presets">
+              <button class="timer-preset-btn" data-time="15">
+                <span>15s</span>
+                <span class="preset-sub">⚡ Stoppage</span>
+              </button>
+              <button class="timer-preset-btn" data-time="30">
+                <span>30s</span>
+                <span class="preset-sub">🏃 Extra Time</span>
+              </button>
+              <button class="timer-preset-btn active" data-time="45">
+                <span>45s</span>
+                <span class="preset-sub">⚽ Half Time</span>
+              </button>
+              <button class="timer-preset-btn" data-time="60">
+                <span>60s</span>
+                <span class="preset-sub">🛡️ Pro Pace</span>
+              </button>
+              <button class="timer-preset-btn" data-time="90">
+                <span>90s</span>
+                <span class="preset-sub">🏆 Full 90'</span>
+              </button>
+              <button class="timer-preset-btn" data-time="0">
+                <span>Zen</span>
+                <span class="preset-sub">🧘 Training</span>
+              </button>
+            </div>
+
+            <!-- Custom Exact Slider -->
+            <div class="slider-group" id="timer-slider-group">
+              <div class="slider-label-row">
+                <span>Exact Seconds:</span>
+                <span class="slider-val-badge" id="slider-timer-val">45 seconds</span>
+              </div>
+              <input type="range" min="10" max="180" step="5" value="45" class="game-slider" id="custom-timer-slider">
+            </div>
+
+            <!-- Additional Modifiers -->
+            <div class="toggle-row">
+              <div class="toggle-info">
+                <div class="toggle-title">⚡ Goal Bonus Time</div>
+                <div class="toggle-desc">+5s stoppage time added on quick correct solve</div>
+              </div>
+              <label class="switch">
+                <input type="checkbox" id="toggle-speed-bonus" checked>
+                <span class="switch-slider"></span>
+              </label>
+            </div>
+
+            <div class="toggle-row">
+              <div class="toggle-info">
+                <div class="toggle-title">🔔 Stoppage Whistle Ticking</div>
+                <div class="toggle-desc">Heart-racing countdown sound under 10s</div>
+              </div>
+              <label class="switch">
+                <input type="checkbox" id="toggle-urgency-tick" checked>
+                <span class="switch-slider"></span>
+              </label>
+            </div>
+
+            <button class="game-btn btn-primary" id="save-timer-btn" style="margin-top: 8px;">
+              Apply Match Clock
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- ================================================================
+           MODAL: ERA & TOURNAMENT SELECTOR
+           ================================================================ -->
+      <div class="game-modal" id="realm-modal">
+        <div class="modal-card">
+          <div class="modal-header">
+            <h2 class="modal-title">🏟️ Select Football Era</h2>
+            <button class="modal-close" data-close="realm-modal">✕</button>
+          </div>
+          <div class="modal-body">
+            <div id="realm-cards-list" style="display: flex; flex-direction: column; gap: 8px;">
+              <!-- Dynamic tournament category items -->
+            </div>
+
+            <div style="font-size: 12px; font-weight: 700; color: var(--gold-300); text-transform: uppercase; margin-top: 6px;">Special Modes</div>
+            
+            <div class="realm-card" id="mode-blitz-card">
+              <div class="realm-card-left">
+                <div class="realm-card-icon">⚡</div>
+                <div>
+                  <div class="realm-card-title">Penalty Shootout Blitz</div>
+                  <div class="realm-card-count">Rapid random historic scenarios against the clock!</div>
+                </div>
+              </div>
+              <span style="font-size: 14px; color: var(--gold-400);">▶</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ================================================================
+           MODAL: VICTORY CELEBRATION (GOAL / SCENARIO SOLVED)
+           ================================================================ -->
+      <div class="game-modal" id="victory-modal">
+        <div class="modal-card">
+          <div class="modal-header">
+            <h2 class="modal-title">🏆 GOLAZO! Scenario Solved!</h2>
+            <button class="modal-close" data-close="victory-modal">✕</button>
+          </div>
+          <div class="modal-body" style="text-align: center;">
+            <img src="assets/victory.jpg" alt="Championship Trophy" class="victory-hero-img">
+
+            <div class="stars-display" id="victory-stars">
+              <span class="star">⭐</span>
+              <span class="star">⭐</span>
+              <span class="star">⭐</span>
+            </div>
+
+            <h3 style="font-family: var(--font-title); color: var(--gold-300); font-size: 18px;" id="victory-heading">
+              World Class Football IQ!
+            </h3>
+
+            <div class="score-breakdown-card">
+              <div class="score-line">
+                <span>Goal Points:</span>
+                <span id="v-base-score">+300</span>
+              </div>
+              <div class="score-line">
+                <span>Stoppage Speed Bonus:</span>
+                <span id="v-time-score">+120</span>
+              </div>
+              <div class="score-line">
+                <span>Win Streak Multiplier:</span>
+                <span id="v-streak-score">x2</span>
+              </div>
+              <div class="score-line total">
+                <span>Total Score:</span>
+                <span id="v-total-score">+540</span>
+              </div>
+            </div>
+
+            <div style="display: flex; gap: 8px; margin-top: 6px;">
+              <button class="game-btn btn-secondary" id="victory-replay-btn" style="flex: 1;">
+                ↺ Replay
+              </button>
+              <button class="game-btn btn-primary" id="victory-next-btn" style="flex: 2;">
+                Next Match ▶
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ================================================================
+           MODAL: TIME EXPIRED / FULL TIME WHISTLE
+           ================================================================ -->
+      <div class="game-modal" id="timeup-modal">
+        <div class="modal-card">
+          <div class="modal-header">
+            <h2 class="modal-title" style="color: var(--ruby-500);">⏳ Full-Time Whistle!</h2>
+            <button class="modal-close" data-close="timeup-modal">✕</button>
+          </div>
+          <div class="modal-body" style="text-align: center;">
+            <div style="font-size: 48px; margin: 4px 0;">⏱️</div>
+            <p style="font-size: 14px; color: #fecdd3;">
+              The referee blew the whistle before you could fill in the historic scenario!
+            </p>
+
+            <div style="background: rgba(15, 20, 36, 0.7); padding: 12px; border-radius: var(--radius-md); text-align: left; font-size: 13px;">
+              <div style="color: var(--gold-300); font-weight: 700; margin-bottom: 4px;">Correct Scenario Answers:</div>
+              <div id="timeup-solution" style="font-weight: 800; color: #fff; font-size: 15px;">-</div>
+            </div>
+
+            <div style="display: flex; flex-direction: column; gap: 8px; margin-top: 8px;">
+              <button class="game-btn btn-primary" id="timeup-retry-btn">
+                ↺ Try Again (Extra Time)
+              </button>
+              <button class="game-btn btn-secondary" id="timeup-adjust-timer-btn">
+                ⏱️ Give Me More Match Time (Modify Timer)
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ================================================================
+           MODAL: CUSTOM SOCCER SCENARIO CREATOR
+           ================================================================ -->
+      <div class="game-modal" id="custom-modal">
+        <div class="modal-card">
+          <div class="modal-header">
+            <h2 class="modal-title">✍️ Craft Soccer Scenario</h2>
+            <button class="modal-close" data-close="custom-modal">✕</button>
+          </div>
+          <div class="modal-body">
+            <p style="font-size: 13px; color: var(--text-muted);">
+              Type your favorite historic soccer moment and put brackets around the missing gaps like <code style="color: var(--gold-300);">[RONALDO]</code> or <code style="color: var(--gold-300);">[VOLLEY]</code>!
+            </p>
+
+            <div>
+              <label style="font-size: 12px; font-weight: 700; color: var(--gold-300);">Scenario with [Brackets]:</label>
+              <textarea class="custom-input" id="custom-text-input" rows="3" placeholder="Example: In 2002, Brazil striker [RONALDO] scored twice in Yokohama to beat [GERMANY] 2-0."></textarea>
+            </div>
+
+            <div>
+              <label style="font-size: 12px; font-weight: 700; color: var(--gold-300);">Distractor Words (Comma separated):</label>
+              <input type="text" class="custom-input" id="custom-distractors-input" placeholder="RIVALDO, FRANCE, KEEPER, KLOSE">
+            </div>
+
+            <div>
+              <label style="font-size: 12px; font-weight: 700; color: var(--gold-300);">Tactical Hint (Optional):</label>
+              <input type="text" class="custom-input" id="custom-hint-input" placeholder="O Fenomeno redemption after 1998!">
+            </div>
+
+            <button class="game-btn btn-primary" id="custom-create-btn">
+              Kickoff Custom Scenario ▶
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- ================================================================
+           MODAL: GAME SETTINGS
+           ================================================================ -->
+      <div class="game-modal" id="settings-modal">
+        <div class="modal-card">
+          <div class="modal-header">
+            <h2 class="modal-title">⚙️ Match Settings</h2>
+            <button class="modal-close" data-close="settings-modal">✕</button>
+          </div>
+          <div class="modal-body">
+            <div class="toggle-row">
+              <div class="toggle-info">
+                <div class="toggle-title">🔊 Stadium Audio</div>
+                <div class="toggle-desc">Referee whistles, crowd cheers & kicks</div>
+              </div>
+              <label class="switch">
+                <input type="checkbox" id="toggle-sound" checked>
+                <span class="switch-slider"></span>
+              </label>
+            </div>
+
+            <div class="toggle-row">
+              <div class="toggle-info">
+                <div class="toggle-title">📳 Haptic Vibrations</div>
+                <div class="toggle-desc">Tactile clicks on mobile devices</div>
+              </div>
+              <label class="switch">
+                <input type="checkbox" id="toggle-haptics" checked>
+                <span class="switch-slider"></span>
+              </label>
+            </div>
+
+            <div class="toggle-row">
+              <div class="toggle-info">
+                <div class="toggle-title">✨ Stadium Sparkles</div>
+                <div class="toggle-desc">Atmospheric floodlight sparks & confetti</div>
+              </div>
+              <label class="switch">
+                <input type="checkbox" id="toggle-particles" checked>
+                <span class="switch-slider"></span>
+              </label>
+            </div>
+
+            <div style="border-top: 1px solid rgba(255, 255, 255, 0.1); padding-top: 12px; text-align: center;">
+              <button class="game-btn btn-secondary" id="reset-progress-btn" style="width: 100%;">
+                ↺ Reset All Game Progress
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </main>
+  </div>
+
+  <!-- Scripts -->
+  <script src="audio.js"></script>
+  <script src="particles.js"></script>
+  <script src="puzzles.js"></script>
+  <script src="game.js"></script>
+</body>
+</html>

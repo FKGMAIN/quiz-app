@@ -1,0 +1,13 @@
+{
+  "name": "runic-words-mobile-puzzle",
+  "version": "1.0.0",
+  "description": "Fast mobile-view missing word puzzle web game with rich game art and modifiable timer",
+  "main": "index.html",
+  "scripts": {
+    "dev": "npx serve -l 3000 .",
+    "start": "npx serve -l 3000 ."
+  },
+  "keywords": ["puzzle", "mobile-game", "web-game", "word-game", "missing-words"],
+  "author": "Antigravity",
+  "license": "MIT"
+}
