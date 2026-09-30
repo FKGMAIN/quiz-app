@@ -1,13 +1,19 @@
 {
-  "name": "runic-words-mobile-puzzle",
+  "name": "pitch-legends-football-word-gap",
   "version": "1.0.0",
-  "description": "Fast mobile-view missing word puzzle web game with rich game art and modifiable timer",
-  "main": "index.html",
+  "description": "Fast mobile-view soccer word gap puzzle with phone session 30-day cooldown, PostgreSQL/SQLite backend, and 120+ historic words",
+  "main": "server.js",
   "scripts": {
-    "dev": "npx serve -l 3000 .",
-    "start": "npx serve -l 3000 ."
+    "start": "node server.js",
+    "dev": "node server.js",
+    "seed": "node seed.js"
   },
-  "keywords": ["puzzle", "mobile-game", "web-game", "word-game", "missing-words"],
+  "dependencies": {
+    "express": "^4.21.2",
+    "pg": "^8.13.1",
+    "sqlite3": "^5.1.7"
+  },
+  "keywords": ["soccer", "football", "puzzle", "mobile-game", "word-game", "sqlite", "postgres"],
   "author": "Antigravity",
   "license": "MIT"
 }

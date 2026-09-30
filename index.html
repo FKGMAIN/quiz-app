@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-  <title>Pitch Legends: Historic Football Gap Puzzle</title>
-  <meta name="description" content="Test your soccer history knowledge! Solve iconic football scenarios and fill in the missing words from historic World Cups, Champions League miracles, and legendary lore.">
+  <title>Pitch Legends: Historic Football Word Gap Puzzle</title>
+  <meta name="description" content="Test your soccer history knowledge! Complete missing letters in historic football words, players, and stadiums. Session tied to your phone number with a 30-day non-repeat cooldown.">
 
   <!-- Typography -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -21,6 +21,7 @@
   <div class="desktop-bar" id="desktop-bar">
     <button id="view-mode-phone" class="active">📱 Mobile View</button>
     <button id="view-mode-expand">🖥️ Full Stadium View</button>
+    <button id="quick-phone-bar-btn">📱 Player Profile</button>
     <button id="quick-timer-bar-btn">⏱️ Match Timer (Modify)</button>
   </div>
 
@@ -43,19 +44,19 @@
           <!-- GAME HUD HEADER -->
           <header class="hud-header">
             <div class="hud-top-row">
-              <!-- Tournament Category Selector Pill -->
-              <button class="realm-pill" id="realm-pill-btn" title="Choose Tournament Era & Mode">
-                <span id="hud-realm-icon">🏆</span>
-                <span class="realm-name" id="hud-realm-name">World Cup Epics</span>
-                <span class="realm-step" id="hud-puzzle-step">1/8</span>
+              <!-- Player Phone Number / Profile Pill -->
+              <button class="realm-pill" id="phone-pill-btn" title="Phone Session & 30-Day Progress">
+                <span>📱</span>
+                <span class="realm-name" id="hud-phone-text">Player Login</span>
+                <span class="realm-step" id="hud-month-progress">0/120</span>
                 <span style="font-size: 10px; color: var(--gold-400);">▼</span>
               </button>
 
-              <!-- Actions (Referee Whistle, Custom Scenario, Settings) -->
+              <!-- Actions (Referee Whistle, Sound, Settings) -->
               <div class="hud-actions">
                 <button class="icon-btn" id="whistle-sound-btn" title="Blow Referee Whistle">📢</button>
                 <button class="icon-btn" id="sound-btn" title="Toggle Sound FX">🔊</button>
-                <button class="icon-btn" id="custom-puzzle-btn" title="Create Custom Soccer Scenario">✍️</button>
+                <button class="icon-btn" id="category-filter-btn" title="Select Category Era">🏆</button>
                 <button class="icon-btn" id="settings-btn" title="Game Settings">⚙️</button>
               </div>
             </div>
@@ -101,55 +102,65 @@
             </div>
             <div class="mascot-bubble">
               <div class="mascot-name">Referee Barnaby</div>
-              <div id="mascot-speech">Welcome to the pitch! Fill in the missing gaps to solve this historic football scenario!</div>
+              <div id="mascot-speech">Complete the missing letters in the historic football word below!</div>
             </div>
           </section>
 
-          <!-- PUZZLE BOARD: HISTORIC SCENARIO WITH MISSING WORDS -->
+          <!-- PUZZLE BOARD: HISTORIC SCENARIO CLUE + WORD GAP BOXES -->
           <article class="puzzle-board" id="puzzle-board">
             <div class="puzzle-title-bar">
               <div style="display: flex; align-items: center; gap: 8px;">
                 <span class="scenario-year-badge" id="scenario-year">1986</span>
-                <span class="puzzle-title" id="puzzle-title">The Hand & The Century</span>
+                <span class="puzzle-title" id="puzzle-category">World Cup Legends</span>
               </div>
               <div class="puzzle-diff" id="puzzle-difficulty">⭐⭐⭐</div>
             </div>
 
-            <!-- Match Teams Pill -->
-            <div id="match-teams-bar" style="font-size: 11px; font-weight: 700; color: var(--gold-400); text-transform: uppercase; margin-bottom: 8px; letter-spacing: 0.5px;">
-              ⚽ Argentina vs England
+            <!-- Team / Era Context -->
+            <div id="match-teams-bar" style="font-size: 11px; font-weight: 700; color: var(--gold-400); text-transform: uppercase; margin-bottom: 6px; letter-spacing: 0.5px;">
+              ⚽ Argentina
             </div>
 
-            <!-- The Scenario with Interactive Gaps -->
-            <div class="sentence-container" id="sentence-container">
-              <!-- Dynamically populated scenario sentence with slot buttons -->
+            <!-- Historical Clue -->
+            <div id="historic-clue-box" class="historic-clue-text">
+              Argentina 1986 icon who scored the Hand of God and Goal of the Century against England.
+            </div>
+
+            <!-- WORD GAP DISPLAY CONTAINER (WORDS ONLY, LETTER GAPS) -->
+            <div class="word-gaps-wrapper" id="word-gaps-wrapper">
+              <!-- Dynamically rendered letter tiles and missing letter gaps -->
+            </div>
+
+            <!-- 30-Day Status Pill -->
+            <div class="cooldown-status-bar" id="cooldown-status-bar">
+              <span>🛡️ 30-Day Fresh Match Guarantee (No repeats)</span>
             </div>
 
             <!-- Hint & Assistance Tray -->
             <div class="hint-bar">
               <button class="hint-chip" id="hint-clue-btn">
                 <span>💡</span>
-                <span id="hint-clue-text">Tactical Clue</span>
-              </button>
-              <button class="hint-chip" id="hint-letter-btn">
-                <span>🔤</span>
-                <span>1st Letters</span>
+                <span id="hint-clue-text">Letter Clue</span>
               </button>
               <button class="hint-chip" id="hint-eliminate-btn">
                 <span>🟥</span>
                 <span>Sub 2 Out</span>
               </button>
+              <button class="hint-chip" id="skip-puzzle-btn">
+                <span>⏭️</span>
+                <span>Skip</span>
+              </button>
             </div>
           </article>
 
-          <!-- WORD BANK TILES (PLAYERS & TACTICAL TERMS) -->
+          <!-- LETTER BANK TILES (LETTERS ONLY) -->
           <section class="word-bank-section">
             <div class="word-bank-header">
-              <div class="word-bank-title">Tactical Dugout (Player & Word Bank)</div>
+              <div class="word-bank-title">Tactical Letters (Pick to Complete Word)</div>
               <button class="shuffle-btn" id="shuffle-words-btn">🔀 Shuffle</button>
             </div>
-            <div class="word-bank-grid" id="word-bank-grid">
-              <!-- Dynamically generated word chips -->
+            <div class="word-bank-grid" id="letter-bank-grid">
+              <!-- Dynamically generated letter chips -->
             </div>
           </section>
 
@@ -159,10 +170,56 @@
               <span>↺</span> Reset
             </button>
             <button class="game-btn btn-primary" id="check-answer-btn">
-              <span>⚽</span> Check Scenario
+              <span>⚽</span> Complete Word
             </button>
           </div>
 
+        </div>
+      </div>
+
+      <!-- ================================================================
+           MODAL: PHONE NUMBER SESSION / LOGIN MODAL
+           ================================================================ -->
+      <div class="game-modal" id="phone-modal">
+        <div class="modal-card">
+          <div class="modal-header">
+            <h2 class="modal-title">📱 Player Phone Session</h2>
+            <button class="modal-close" data-close="phone-modal">✕</button>
+          </div>
+          <div class="modal-body">
+            <p style="font-size: 13px; color: var(--text-muted);">
+              Enter your mobile phone number. Your progress and answered questions are securely saved and <strong>will not repeat for a full month (30 days)</strong>!
+            </p>
+
+            <div>
+              <label style="font-size: 12px; font-weight: 700; color: var(--gold-300);">Phone Number:</label>
+              <input type="tel" class="custom-input" id="phone-input" placeholder="e.g. +1 555-0199 or 0712345678" style="font-size: 16px; font-weight: 700;">
+            </div>
+
+            <!-- 30-Day Session Overview Card -->
+            <div class="score-breakdown-card" id="phone-stats-card" style="display: none;">
+              <div class="score-line">
+                <span>Current Points:</span>
+                <span id="p-score" style="color: var(--gold-400); font-weight: 800;">0</span>
+              </div>
+              <div class="score-line">
+                <span>Active Streak:</span>
+                <span id="p-streak" style="color: var(--gold-400); font-weight: 800;">x1</span>
+              </div>
+              <div class="score-line">
+                <span>Answered in Past 30 Days:</span>
+                <span id="p-answered">0</span>
+              </div>
+              <div class="score-line">
+                <span>Fresh Available Questions:</span>
+                <span id="p-remaining" style="color: var(--emerald-400); font-weight: 800;">120</span>
+              </div>
+            </div>
+
+            <button class="game-btn btn-primary" id="save-phone-btn" style="margin-top: 4px;">
+              ⚽ Save & Start Playing
+            </button>
+          </div>
         </div>
       </div>
 
@@ -249,42 +306,29 @@
       </div>
 
       <!-- ================================================================
-           MODAL: ERA & TOURNAMENT SELECTOR
+           MODAL: ERA & CATEGORY FILTER
            ================================================================ -->
       <div class="game-modal" id="realm-modal">
         <div class="modal-card">
           <div class="modal-header">
-            <h2 class="modal-title">🏟️ Select Football Era</h2>
+            <h2 class="modal-title">🏟️ Select Football Category</h2>
             <button class="modal-close" data-close="realm-modal">✕</button>
           </div>
           <div class="modal-body">
             <div id="realm-cards-list" style="display: flex; flex-direction: column; gap: 8px;">
-              <!-- Dynamic tournament category items -->
-            </div>
-
-            <div style="font-size: 12px; font-weight: 700; color: var(--gold-300); text-transform: uppercase; margin-top: 6px;">Special Modes</div>
-            
-            <div class="realm-card" id="mode-blitz-card">
-              <div class="realm-card-left">
-                <div class="realm-card-icon">⚡</div>
-                <div>
-                  <div class="realm-card-title">Penalty Shootout Blitz</div>
-                  <div class="realm-card-count">Rapid random historic scenarios against the clock!</div>
-                </div>
-              </div>
-              <span style="font-size: 14px; color: var(--gold-400);">▶</span>
+              <!-- Dynamic category items from DB -->
             </div>
           </div>
         </div>
       </div>
 
       <!-- ================================================================
-           MODAL: VICTORY CELEBRATION (GOAL / SCENARIO SOLVED)
+           MODAL: VICTORY CELEBRATION (WORD SOLVED)
            ================================================================ -->
       <div class="game-modal" id="victory-modal">
         <div class="modal-card">
           <div class="modal-header">
-            <h2 class="modal-title">🏆 GOLAZO! Scenario Solved!</h2>
+            <h2 class="modal-title">🏆 GOLAZO! Word Completed!</h2>
             <button class="modal-close" data-close="victory-modal">✕</button>
           </div>
           <div class="modal-body" style="text-align: center;">
@@ -296,8 +340,8 @@
               <span class="star">⭐</span>
             </div>
 
-            <h3 style="font-family: var(--font-title); color: var(--gold-300); font-size: 18px;" id="victory-heading">
-              World Class Football IQ!
+            <h3 style="font-family: var(--font-title); color: var(--gold-300); font-size: 20px; letter-spacing: 1px;" id="victory-word-display">
+              MARADONA
             </h3>
 
             <div class="score-breakdown-card">
@@ -319,12 +363,16 @@
               </div>
             </div>
 
+            <div style="font-size: 11px; color: var(--emerald-400); margin: 6px 0;">
+              🔒 Answer recorded for your phone number. Won't repeat for 30 days!
+            </div>
+
             <div style="display: flex; gap: 8px; margin-top: 6px;">
-              <button class="game-btn btn-secondary" id="victory-replay-btn" style="flex: 1;">
-                ↺ Replay
+              <button class="game-btn btn-secondary" id="victory-profile-btn" style="flex: 1;">
+                📱 Profile
               </button>
               <button class="game-btn btn-primary" id="victory-next-btn" style="flex: 2;">
-                Next Match ▶
+                Next Word ▶
               </button>
             </div>
           </div>
@@ -343,12 +391,12 @@
           <div class="modal-body" style="text-align: center;">
             <div style="font-size: 48px; margin: 4px 0;">⏱️</div>
             <p style="font-size: 14px; color: #fecdd3;">
-              The referee blew the whistle before you could fill in the historic scenario!
+              The referee blew the whistle before you could complete the football word!
             </p>
 
             <div style="background: rgba(15, 20, 36, 0.7); padding: 12px; border-radius: var(--radius-md); text-align: left; font-size: 13px;">
-              <div style="color: var(--gold-300); font-weight: 700; margin-bottom: 4px;">Correct Scenario Answers:</div>
-              <div id="timeup-solution" style="font-weight: 800; color: #fff; font-size: 15px;">-</div>
+              <div style="color: var(--gold-300); font-weight: 700; margin-bottom: 4px;">Correct Word Was:</div>
+              <div id="timeup-solution" style="font-weight: 800; color: #fff; font-size: 18px; letter-spacing: 2px;">-</div>
             </div>
 
             <div style="display: flex; flex-direction: column; gap: 8px; margin-top: 8px;">
@@ -359,42 +407,6 @@
                 ⏱️ Give Me More Match Time (Modify Timer)
               </button>
             </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- ================================================================
-           MODAL: CUSTOM SOCCER SCENARIO CREATOR
-           ================================================================ -->
-      <div class="game-modal" id="custom-modal">
-        <div class="modal-card">
-          <div class="modal-header">
-            <h2 class="modal-title">✍️ Craft Soccer Scenario</h2>
-            <button class="modal-close" data-close="custom-modal">✕</button>
-          </div>
-          <div class="modal-body">
-            <p style="font-size: 13px; color: var(--text-muted);">
-              Type your favorite historic soccer moment and put brackets around the missing gaps like <code style="color: var(--gold-300);">[RONALDO]</code> or <code style="color: var(--gold-300);">[VOLLEY]</code>!
-            </p>
-
-            <div>
-              <label style="font-size: 12px; font-weight: 700; color: var(--gold-300);">Scenario with [Brackets]:</label>
-              <textarea class="custom-input" id="custom-text-input" rows="3" placeholder="Example: In 2002, Brazil striker [RONALDO] scored twice in Yokohama to beat [GERMANY] 2-0."></textarea>
-            </div>
-
-            <div>
-              <label style="font-size: 12px; font-weight: 700; color: var(--gold-300);">Distractor Words (Comma separated):</label>
-              <input type="text" class="custom-input" id="custom-distractors-input" placeholder="RIVALDO, FRANCE, KEEPER, KLOSE">
-            </div>
-
-            <div>
-              <label style="font-size: 12px; font-weight: 700; color: var(--gold-300);">Tactical Hint (Optional):</label>
-              <input type="text" class="custom-input" id="custom-hint-input" placeholder="O Fenomeno redemption after 1998!">
-            </div>
-
-            <button class="game-btn btn-primary" id="custom-create-btn">
-              Kickoff Custom Scenario ▶
-            </button>
           </div>
         </div>
       </div>
@@ -442,9 +454,14 @@
               </label>
             </div>
 
+            <div style="background: rgba(15, 20, 36, 0.6); padding: 10px; border-radius: var(--radius-md); font-size: 12px; color: var(--text-muted);">
+              <div>🗄️ Database Backend: <strong id="db-type-badge" style="color: var(--gold-400);">SQLite</strong></div>
+              <div>📅 Question Cooldown: <strong>30 Days (1 Month)</strong></div>
+            </div>
+
             <div style="border-top: 1px solid rgba(255, 255, 255, 0.1); padding-top: 12px; text-align: center;">
-              <button class="game-btn btn-secondary" id="reset-progress-btn" style="width: 100%;">
-                ↺ Reset All Game Progress
+              <button class="game-btn btn-secondary" id="switch-phone-btn" style="width: 100%;">
+                📱 Change Phone Number
               </button>
             </div>
           </div>
@@ -457,7 +474,6 @@
   <!-- Scripts -->
   <script src="audio.js"></script>
   <script src="particles.js"></script>
-  <script src="puzzles.js"></script>
   <script src="game.js"></script>
 </body>
 </html>

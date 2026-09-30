@@ -1,58 +1,55 @@
 // ==========================================================================
-// Pitch Legends: Historic Football Gap Puzzle - Core Game Engine
+// Pitch Legends: Historic Football Word Gap Puzzle - Client Game Engine
+// Dual SQLite/Postgres Backend + Phone Session with 30-Day Cooldown
 // ==========================================================================
 
-class SoccerPuzzleGame {
+class SoccerWordGapGame {
   constructor() {
-    this.puzzles = window.PUZZLE_DATA || [];
-    this.blitzExtra = window.BLITZ_EXTRA_POOL || [];
     this.sound = window.soundCtrl;
     this.particles = null;
 
-    // Game state
-    this.currentRealmIndex = 0;
-    this.currentPuzzleIndex = 0;
-    this.score = 0;
-    this.streak = 1;
-    this.highestStreak = 1;
-    this.solvedCount = 0;
-    this.isBlitzMode = false;
+    // Player Phone Session
+    this.phoneNumber = localStorage.getItem('soccer_phone_number') || null;
+    this.playerScore = 0;
+    this.playerStreak = 1;
+    this.answeredIn30Days = 0;
+    this.totalPuzzles = 120;
+    this.selectedCategory = null;
 
-    // Modifiable Match Timer configuration
-    this.maxTimer = 45; // Default 45s (half time), player can modify anytime
+    // Modifiable Match Timer
+    this.maxTimer = 45;
     this.remainingTimer = 45;
     this.timerInterval = null;
     this.isZenMode = false;
     this.speedBonusEnabled = true;
     this.urgencyTickEnabled = true;
-    this.timerUrgentThreshold = 10; // seconds
+    this.timerUrgentThreshold = 10;
 
-    // Active scenario puzzle session
-    this.activePuzzle = null;
-    this.slottedWords = [];
-    this.activeSlotIdx = 0;
-    this.availableWords = [];
-    this.usedHints = { clue: false, letter: false, eliminate: false };
-
-    // Tournament eras
-    this.tournaments = [
-      { id: 'wc', name: 'World Cup Epics', icon: '🏆' },
-      { id: 'ucl', name: 'Champions League Miracles', icon: '⭐' },
-      { id: 'legends', name: 'Legends & Underdog Fairytales', icon: '🛡️' }
-    ];
+    // Current Puzzle State
+    this.currentPuzzle = null;
+    this.gapSlots = []; // Array of { gapIdx, expectedChar, slottedChar, wordCharIdx }
+    this.activeGapIdx = 0;
+    this.letterBank = []; // Array of { id, char, placed }
+    this.usedHints = { clue: false, eliminate: false };
 
     this.initElements();
     this.loadPreferences();
     this.bindEvents();
     this.initParticles();
-    this.startPuzzle();
+
+    if (!this.phoneNumber) {
+      // Prompt for phone login
+      this.openModal(this.phoneModal);
+    } else {
+      this.initPlayerSession(this.phoneNumber);
+    }
   }
 
   initElements() {
-    // HUD
-    this.hudRealmIcon = document.getElementById('hud-realm-icon');
-    this.hudRealmName = document.getElementById('hud-realm-name');
-    this.hudPuzzleStep = document.getElementById('hud-puzzle-step');
+    // HUD Elements
+    this.hudPhoneText = document.getElementById('hud-phone-text');
+    this.hudMonthProgress = document.getElementById('hud-month-progress');
+    this.phonePillBtn = document.getElementById('phone-pill-btn');
     this.hudScore = document.getElementById('hud-score');
     this.hudTimerText = document.getElementById('hud-timer-text');
     this.hudTimerBtn = document.getElementById('timer-hud-btn');
@@ -65,14 +62,15 @@ class SoccerPuzzleGame {
 
     // Puzzle Board
     this.scenarioYear = document.getElementById('scenario-year');
-    this.puzzleTitle = document.getElementById('puzzle-title');
+    this.puzzleCategory = document.getElementById('puzzle-category');
     this.matchTeamsBar = document.getElementById('match-teams-bar');
-    this.puzzleDifficulty = document.getElementById('puzzle-difficulty');
-    this.sentenceContainer = document.getElementById('sentence-container');
+    this.historicClueBox = document.getElementById('historic-clue-box');
+    this.wordGapsWrapper = document.getElementById('word-gaps-wrapper');
     this.puzzleBoard = document.getElementById('puzzle-board');
+    this.cooldownStatusBar = document.getElementById('cooldown-status-bar');
 
-    // Word Bank & Actions
-    this.wordBankGrid = document.getElementById('word-bank-grid');
+    // Letter Bank & Action Buttons
+    this.letterBankGrid = document.getElementById('letter-bank-grid');
     this.checkAnswerBtn = document.getElementById('check-answer-btn');
     this.clearSlotsBtn = document.getElementById('clear-slots-btn');
     this.shuffleWordsBtn = document.getElementById('shuffle-words-btn');
@@ -80,15 +78,19 @@ class SoccerPuzzleGame {
     // Hints
     this.hintClueBtn = document.getElementById('hint-clue-btn');
     this.hintClueText = document.getElementById('hint-clue-text');
-    this.hintLetterBtn = document.getElementById('hint-letter-btn');
     this.hintEliminateBtn = document.getElementById('hint-eliminate-btn');
+    this.skipPuzzleBtn = document.getElementById('skip-puzzle-btn');
 
     // Modals
+    this.phoneModal = document.getElementById('phone-modal');
+    this.phoneInput = document.getElementById('phone-input');
+    this.savePhoneBtn = document.getElementById('save-phone-btn');
+    this.phoneStatsCard = document.getElementById('phone-stats-card');
+
     this.timerModal = document.getElementById('timer-modal');
     this.realmModal = document.getElementById('realm-modal');
     this.victoryModal = document.getElementById('victory-modal');
     this.timeupModal = document.getElementById('timeup-modal');
-    this.customModal = document.getElementById('custom-modal');
     this.settingsModal = document.getElementById('settings-modal');
 
     // Timer modal controls
@@ -107,10 +109,6 @@ class SoccerPuzzleGame {
         this.maxTimer = val;
         this.isZenMode = (val === 0);
       }
-      const savedScore = localStorage.getItem('soccer_score');
-      if (savedScore) this.score = parseInt(savedScore, 10);
-      this.hudScore.textContent = this.score;
-
       const savedSpeedBonus = localStorage.getItem('soccer_speed_bonus');
       if (savedSpeedBonus !== null) {
         this.speedBonusEnabled = savedSpeedBonus === 'true';
@@ -123,7 +121,6 @@ class SoccerPuzzleGame {
   savePreferences() {
     try {
       localStorage.setItem('soccer_timer_sec', this.maxTimer);
-      localStorage.setItem('soccer_score', this.score);
       localStorage.setItem('soccer_speed_bonus', this.speedBonusEnabled);
     } catch (e) {}
   }
@@ -131,234 +128,443 @@ class SoccerPuzzleGame {
   initParticles() {
     try {
       this.particles = new ParticleEngine('fx-canvas');
-    } catch (e) {
-      console.warn('Canvas particle init:', e);
+    } catch (e) {}
+  }
+
+  // ==========================================================================
+  // PHONE SESSION & 30-DAY COOLDOWN LOGIC
+  // ==========================================================================
+  async initPlayerSession(phoneNumber) {
+    try {
+      const res = await fetch('/api/session', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ phone_number: phoneNumber })
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        alert(data.error || 'Failed to authenticate phone session.');
+        this.openModal(this.phoneModal);
+        return;
+      }
+
+      this.phoneNumber = data.phone_number;
+      localStorage.setItem('soccer_phone_number', this.phoneNumber);
+      this.playerScore = data.score;
+      this.playerStreak = data.streak;
+      this.answeredIn30Days = data.answered_in_30_days;
+      this.totalPuzzles = data.total_puzzles;
+
+      // Update HUD
+      const displayPhone = this.phoneNumber.length > 10 
+        ? `${this.phoneNumber.slice(0, 4)}...${this.phoneNumber.slice(-4)}`
+        : this.phoneNumber;
+      this.hudPhoneText.textContent = displayPhone;
+      this.hudMonthProgress.textContent = `${this.answeredIn30Days}/${this.totalPuzzles}`;
+      this.hudScore.textContent = this.playerScore;
+      this.hudStreak.textContent = `x${this.playerStreak}`;
+
+      const dbBadge = document.getElementById('db-type-badge');
+      if (dbBadge) dbBadge.textContent = data.db_type ? data.db_type.toUpperCase() : 'SQLITE';
+
+      // Update phone stats card in modal
+      document.getElementById('p-score').textContent = this.playerScore;
+      document.getElementById('p-streak').textContent = `x${this.playerStreak}`;
+      document.getElementById('p-answered').textContent = this.answeredIn30Days;
+      document.getElementById('p-remaining').textContent = data.remaining_available;
+      this.phoneStatsCard.style.display = 'flex';
+
+      this.closeModal(this.phoneModal);
+      this.mascotSpeech.textContent = `Player verified! Questions answered by ${this.phoneNumber} will not repeat for 30 days.`;
+
+      // Load next puzzle
+      this.fetchNextPuzzle();
+    } catch (err) {
+      console.error('Session init error:', err);
+      this.mascotSpeech.textContent = 'Connection error. Playing in offline practice mode.';
     }
   }
 
   // ==========================================================================
-  // EVENT BINDINGS
+  // FETCH PUZZLE (WORDS ONLY, EXCLUDING 30-DAY ANSWERED)
   // ==========================================================================
-  bindEvents() {
-    // Desktop View mode buttons
-    const desktopWrapper = document.getElementById('desktop-wrapper');
-    const viewPhoneBtn = document.getElementById('view-mode-phone');
-    const viewExpandBtn = document.getElementById('view-mode-expand');
-    const quickTimerBarBtn = document.getElementById('quick-timer-bar-btn');
+  async fetchNextPuzzle() {
+    this.stopTimer();
 
-    viewPhoneBtn.addEventListener('click', () => {
-      desktopWrapper.classList.remove('fullscreen-mode');
-      viewPhoneBtn.classList.add('active');
-      viewExpandBtn.classList.remove('active');
-      this.sound.playTap();
-      if (this.particles) this.particles.resize();
-    });
-
-    viewExpandBtn.addEventListener('click', () => {
-      desktopWrapper.classList.add('fullscreen-mode');
-      viewExpandBtn.classList.add('active');
-      viewPhoneBtn.classList.remove('active');
-      this.sound.playTap();
-      if (this.particles) this.particles.resize();
-    });
-
-    if (quickTimerBarBtn) {
-      quickTimerBarBtn.addEventListener('click', () => {
-        this.openModal(this.timerModal);
-        this.sound.playTap();
-      });
+    if (!this.phoneNumber) {
+      this.openModal(this.phoneModal);
+      return;
     }
 
-    // Timer HUD button opens Match Timer Configuration Modal
-    this.hudTimerBtn.addEventListener('click', () => {
-      this.openModal(this.timerModal);
-      this.sound.playTap();
-    });
+    try {
+      let url = `/api/puzzle/next?phone_number=${encodeURIComponent(this.phoneNumber)}`;
+      if (this.selectedCategory) {
+        url += `&category=${encodeURIComponent(this.selectedCategory)}`;
+      }
 
-    // Whistle sound button
-    const whistleBtn = document.getElementById('whistle-sound-btn');
-    if (whistleBtn) {
-      whistleBtn.addEventListener('click', () => {
-        this.sound.playWhistle(false);
-      });
+      const res = await fetch(url);
+      const data = await res.json();
+
+      if (!res.ok) {
+        this.mascotSpeech.textContent = data.message || 'All historic questions completed for this 30-day window!';
+        this.cooldownStatusBar.innerHTML = '🏆 <strong>All questions solved this month! Cycle resets automatically.</strong>';
+        return;
+      }
+
+      this.currentPuzzle = data;
+      this.setupWordGapPuzzle(data);
+    } catch (err) {
+      console.error('Failed to fetch puzzle:', err);
+    }
+  }
+
+  setupWordGapPuzzle(puzzle) {
+    this.scenarioYear.textContent = puzzle.year || 'HISTORIC';
+    this.puzzleCategory.textContent = puzzle.category;
+    this.matchTeamsBar.textContent = `⚽ ${puzzle.team || puzzle.category}`;
+    this.historicClueBox.textContent = puzzle.clue;
+
+    if (puzzle.recycled_after_30_days) {
+      this.cooldownStatusBar.innerHTML = '<span>♻️ 30-day window elapsed: Questions recycled for extra training!</span>';
+    } else {
+      this.cooldownStatusBar.innerHTML = '<span>🛡️ 30-Day Fresh Question Guarantee (No repeats)</span>';
     }
 
-    // Sound toggle in HUD
-    const soundBtn = document.getElementById('sound-btn');
-    soundBtn.addEventListener('click', () => {
-      const state = this.sound.toggleSound();
-      soundBtn.textContent = state ? '🔊' : '🔇';
-      this.sound.playTap();
-    });
+    // Reset hints
+    this.usedHints = { clue: false, eliminate: false };
+    this.hintClueBtn.classList.remove('used');
+    this.hintEliminateBtn.classList.remove('used');
+    this.hintClueText.textContent = 'Letter Clue';
 
-    // Custom soccer scenario creator trigger
-    document.getElementById('custom-puzzle-btn').addEventListener('click', () => {
-      this.openModal(this.customModal);
-      this.sound.playTap();
-    });
+    // Parse Word & Mask Pattern into Gaps
+    const word = puzzle.word.toUpperCase();
+    const pattern = puzzle.masked_pattern.toUpperCase();
+    this.gapSlots = [];
 
-    // Settings trigger
-    document.getElementById('settings-btn').addEventListener('click', () => {
-      this.openModal(this.settingsModal);
-      this.sound.playTap();
-    });
+    // Parse pattern to identify gap positions
+    let patternIdx = 0;
+    let gapCounter = 0;
 
-    // Tournament Era selector trigger
-    document.getElementById('realm-pill-btn').addEventListener('click', () => {
-      this.renderTournamentModalList();
-      this.openModal(this.realmModal);
-      this.sound.playTap();
-    });
+    for (let i = 0; i < word.length; i++) {
+      const char = word[i];
+      if (char === ' ') {
+        patternIdx++; // Skip space in pattern
+        continue;
+      }
 
-    // Modal close buttons (via data-close)
-    document.querySelectorAll('[data-close]').forEach(btn => {
-      btn.addEventListener('click', (e) => {
-        const modalId = e.currentTarget.getAttribute('data-close');
-        const modal = document.getElementById(modalId);
-        if (modal) {
-          this.closeModal(modal);
-          this.sound.playTap();
-        }
-      });
-    });
+      const patternChar = pattern[patternIdx] || '_';
+      if (patternChar === '_') {
+        this.gapSlots.push({
+          gapIdx: gapCounter++,
+          wordCharIdx: i,
+          expectedChar: char,
+          slottedChar: null
+        });
+      }
+      patternIdx += 2; // Advance past character and space in pattern string
+    }
 
-    // Close modals on clicking backdrop
-    document.querySelectorAll('.game-modal').forEach(modal => {
-      modal.addEventListener('click', (e) => {
-        if (e.target === modal) {
-          this.closeModal(modal);
-        }
-      });
-    });
+    this.activeGapIdx = 0;
 
-    // Action buttons
-    this.clearSlotsBtn.addEventListener('click', () => {
-      this.clearAllSlots();
-      this.sound.playUnslot();
-    });
+    // Create Letter Bank (missing letters + distractors, shuffled)
+    const allLetters = [...puzzle.missing_letters, ...puzzle.distractors];
+    this.letterBank = this.shuffleArray(allLetters).map((letter, idx) => ({
+      id: `l-${idx}-${letter}`,
+      char: letter.toUpperCase(),
+      placed: false
+    }));
 
-    this.checkAnswerBtn.addEventListener('click', () => {
-      this.verifyAnswer();
-    });
+    this.renderWordGaps();
+    this.renderLetterBank();
 
-    this.shuffleWordsBtn.addEventListener('click', () => {
-      this.shuffleAvailableWords();
-      this.sound.playTap();
-    });
+    this.mascotSpeech.textContent = `Complete the missing letters to name the legend: ${puzzle.clue.slice(0, 55)}...`;
+    this.startTimer();
+  }
 
-    // Hint buttons
-    this.hintClueBtn.addEventListener('click', () => this.useClueHint());
-    this.hintLetterBtn.addEventListener('click', () => this.useLetterHint());
-    this.hintEliminateBtn.addEventListener('click', () => this.useEliminateHint());
+  // ==========================================================================
+  // WORD GAP RENDERING (WORDS ONLY, LETTER GAPS)
+  // ==========================================================================
+  renderWordGaps() {
+    this.wordGapsWrapper.innerHTML = '';
+    const word = this.currentPuzzle.word.toUpperCase();
 
-    // Timer modal controls
-    document.querySelectorAll('.timer-preset-btn').forEach(btn => {
-      btn.addEventListener('click', () => {
-        document.querySelectorAll('.timer-preset-btn').forEach(b => b.classList.remove('active'));
-        btn.classList.add('active');
-        const timeVal = parseInt(btn.getAttribute('data-time'), 10);
-        if (timeVal === 0) {
-          this.customTimerSlider.value = 0;
-          this.sliderTimerVal.textContent = 'Training Ground (Untimed)';
+    // Group into word segments for multi-word phrases (e.g. CAMP NOU, JULES RIMET)
+    const segments = word.split(' ');
+
+    let charOffset = 0;
+    segments.forEach((seg, sIdx) => {
+      const segEl = document.createElement('div');
+      segEl.className = 'word-segment';
+
+      for (let i = 0; i < seg.length; i++) {
+        const fullWordCharIdx = charOffset + i;
+        const char = seg[i];
+
+        const gap = this.gapSlots.find(g => g.wordCharIdx === fullWordCharIdx);
+
+        const box = document.createElement('div');
+        box.className = 'letter-box';
+
+        if (!gap) {
+          // Fixed given letter
+          box.classList.add('fixed');
+          box.textContent = char;
         } else {
-          this.customTimerSlider.value = timeVal;
-          this.sliderTimerVal.textContent = `${timeVal} seconds`;
+          // Missing letter gap slot
+          box.id = `gap-${gap.gapIdx}`;
+          if (gap.slottedChar) {
+            box.classList.add('filled-gap');
+            box.textContent = gap.slottedChar;
+            box.addEventListener('click', () => {
+              this.unslotGap(gap.gapIdx);
+            });
+          } else {
+            box.classList.add('empty-gap');
+            box.textContent = '_';
+            if (gap.gapIdx === this.activeGapIdx) {
+              box.classList.add('active');
+            }
+            box.addEventListener('click', () => {
+              this.setActiveGap(gap.gapIdx);
+            });
+          }
         }
-        this.sound.playTap();
-      });
-    });
-
-    this.customTimerSlider.addEventListener('input', (e) => {
-      const val = parseInt(e.target.value, 10);
-      this.sliderTimerVal.textContent = `${val} seconds`;
-      document.querySelectorAll('.timer-preset-btn').forEach(b => {
-        b.classList.toggle('active', parseInt(b.getAttribute('data-time'), 10) === val);
-      });
-    });
-
-    this.saveTimerBtn.addEventListener('click', () => {
-      this.applyModifiedTimerSettings();
-      this.closeModal(this.timerModal);
-      this.sound.playWhistle(true);
-    });
-
-    // Victory modal buttons
-    document.getElementById('victory-next-btn').addEventListener('click', () => {
-      this.closeModal(this.victoryModal);
-      this.advanceToNextPuzzle();
-    });
-    document.getElementById('victory-replay-btn').addEventListener('click', () => {
-      this.closeModal(this.victoryModal);
-      this.startPuzzle();
-    });
-
-    // Time Up modal buttons
-    document.getElementById('timeup-retry-btn').addEventListener('click', () => {
-      this.closeModal(this.timeupModal);
-      this.startPuzzle();
-    });
-    document.getElementById('timeup-adjust-timer-btn').addEventListener('click', () => {
-      this.closeModal(this.timeupModal);
-      this.openModal(this.timerModal);
-    });
-
-    // Custom puzzle creation submit
-    document.getElementById('custom-create-btn').addEventListener('click', () => {
-      this.handleCustomPuzzleCreation();
-    });
-
-    // Blitz mode card click
-    document.getElementById('mode-blitz-card').addEventListener('click', () => {
-      this.isBlitzMode = true;
-      this.closeModal(this.realmModal);
-      this.startPuzzle();
-      this.sound.playWhistle(true);
-    });
-
-    // Settings modal toggles
-    document.getElementById('toggle-sound').addEventListener('change', (e) => {
-      this.sound.soundEnabled = e.target.checked;
-      document.getElementById('sound-btn').textContent = e.target.checked ? '🔊' : '🔇';
-    });
-    document.getElementById('toggle-haptics').addEventListener('change', (e) => {
-      this.sound.hapticsEnabled = e.target.checked;
-    });
-    document.getElementById('toggle-particles').addEventListener('change', (e) => {
-      if (this.particles) this.particles.isRunning = e.target.checked;
-      if (e.target.checked && this.particles) this.particles.start();
-    });
-    document.getElementById('reset-progress-btn').addEventListener('click', () => {
-      if (confirm('Reset your football points, streaks, and progress?')) {
-        this.score = 0;
-        this.streak = 1;
-        this.currentRealmIndex = 0;
-        this.currentPuzzleIndex = 0;
-        this.savePreferences();
-        this.hudScore.textContent = 0;
-        this.closeModal(this.settingsModal);
-        this.startPuzzle();
+        segEl.appendChild(box);
       }
+
+      this.wordGapsWrapper.appendChild(segEl);
+
+      // Space between segments
+      if (sIdx < segments.length - 1) {
+        const spacer = document.createElement('div');
+        spacer.className = 'word-space-separator';
+        this.wordGapsWrapper.appendChild(spacer);
+      }
+
+      charOffset += seg.length + 1; // +1 for the space
     });
 
-    // Keyboard Shortcuts (1-9 to slot words, Backspace to undo, Enter to shoot)
-    window.addEventListener('keydown', (e) => {
-      if (document.querySelector('.game-modal.active')) return;
-      const num = parseInt(e.key, 10);
-      if (num >= 1 && num <= this.availableWords.length) {
-        const wordObj = this.availableWords[num - 1];
-        if (wordObj && !wordObj.placed) {
-          this.slotWord(wordObj.word, wordObj.id);
+    this.updateCheckButtonState();
+  }
+
+  renderLetterBank() {
+    this.letterBankGrid.innerHTML = '';
+    this.letterBank.forEach((item) => {
+      const chip = document.createElement('button');
+      chip.className = 'runic-word-chip';
+      if (item.placed) chip.classList.add('placed');
+      chip.id = item.id;
+      chip.innerHTML = `<span>${item.char}</span>`;
+
+      chip.addEventListener('click', () => {
+        if (!item.placed) {
+          this.slotLetter(item.char, item.id);
         }
-      } else if (e.key === 'Backspace') {
-        this.unslotActiveOrLast();
-      } else if (e.key === 'Enter') {
-        this.verifyAnswer();
-      }
+      });
+
+      this.letterBankGrid.appendChild(chip);
     });
   }
 
+  setActiveGap(idx) {
+    this.activeGapIdx = idx;
+    document.querySelectorAll('.letter-box.empty-gap').forEach(b => {
+      b.classList.remove('active');
+    });
+    const target = document.getElementById(`gap-${idx}`);
+    if (target) target.classList.add('active');
+    this.sound.playTap();
+  }
+
+  slotLetter(char, letterBankId) {
+    let targetGapIdx = this.activeGapIdx;
+    let targetGap = this.gapSlots[targetGapIdx];
+
+    if (!targetGap || targetGap.slottedChar !== null) {
+      targetGap = this.gapSlots.find(g => g.slottedChar === null);
+    }
+    if (!targetGap) {
+      targetGap = this.gapSlots[this.activeGapIdx];
+      // Return previous letter to bank
+      const oldLetter = targetGap.slottedChar;
+      const oldItem = this.letterBank.find(l => l.char === oldLetter && l.placed);
+      if (oldItem) oldItem.placed = false;
+    }
+
+    targetGap.slottedChar = char;
+    const bankItem = this.letterBank.find(l => l.id === letterBankId);
+    if (bankItem) bankItem.placed = true;
+
+    // Advance to next empty gap
+    const nextEmpty = this.gapSlots.find(g => g.slottedChar === null);
+    this.activeGapIdx = nextEmpty ? nextEmpty.gapIdx : targetGap.gapIdx;
+
+    this.sound.playSlot();
+    this.renderWordGaps();
+    this.renderLetterBank();
+
+    // Auto check if all gaps filled
+    if (this.gapSlots.every(g => g.slottedChar !== null)) {
+      setTimeout(() => this.verifyAnswer(), 200);
+    }
+  }
+
+  unslotGap(gapIdx) {
+    const gap = this.gapSlots.find(g => g.gapIdx === gapIdx);
+    if (!gap || !gap.slottedChar) return;
+
+    const char = gap.slottedChar;
+    gap.slottedChar = null;
+    this.activeGapIdx = gapIdx;
+
+    const bankItem = this.letterBank.find(l => l.char === char && l.placed);
+    if (bankItem) bankItem.placed = false;
+
+    this.sound.playUnslot();
+    this.renderWordGaps();
+    this.renderLetterBank();
+  }
+
+  unslotActiveOrLast() {
+    let target = this.gapSlots.find(g => g.gapIdx === this.activeGapIdx && g.slottedChar !== null);
+    if (!target) {
+      for (let i = this.gapSlots.length - 1; i >= 0; i--) {
+        if (this.gapSlots[i].slottedChar !== null) {
+          target = this.gapSlots[i];
+          break;
+        }
+      }
+    }
+    if (target) {
+      this.unslotGap(target.gapIdx);
+    }
+  }
+
+  clearAllSlots() {
+    this.gapSlots.forEach(g => g.slottedChar = null);
+    this.letterBank.forEach(l => l.placed = false);
+    this.activeGapIdx = 0;
+    this.renderWordGaps();
+    this.renderLetterBank();
+  }
+
+  shuffleAvailableWords() {
+    this.letterBank = this.shuffleArray(this.letterBank);
+    this.renderLetterBank();
+  }
+
+  updateCheckButtonState() {
+    const hasAnyFilled = this.gapSlots.some(g => g.slottedChar !== null);
+    this.checkAnswerBtn.disabled = !hasAnyFilled;
+  }
+
   // ==========================================================================
-  // MODIFIABLE MATCH TIMER LOGIC
+  // ANSWER SUBMISSION & 30-DAY BACKEND LOGGING
+  // ==========================================================================
+  async verifyAnswer() {
+    const isComplete = this.gapSlots.every(g => g.slottedChar !== null);
+    if (!isComplete) {
+      this.mascotSpeech.textContent = 'Referee whistle! Complete all missing letters in the word!';
+      this.sound.playWrong();
+      this.puzzleBoard.classList.add('shake');
+      setTimeout(() => this.puzzleBoard.classList.remove('shake'), 400);
+      return;
+    }
+
+    const isCorrect = this.gapSlots.every(g => g.slottedChar === g.expectedChar);
+
+    if (isCorrect) {
+      await this.handleCorrectAnswer();
+    } else {
+      this.handleWrongAnswer();
+    }
+  }
+
+  async handleCorrectAnswer() {
+    this.stopTimer();
+
+    document.querySelectorAll('.letter-box').forEach(b => {
+      b.classList.add('correct-pulse');
+    });
+
+    this.sound.playCorrect(this.playerStreak);
+    this.playerStreak++;
+    this.hudStreak.textContent = `x${this.playerStreak}`;
+
+    // Celebration Canvas Effects
+    if (this.particles) {
+      const rect = this.wordGapsWrapper.getBoundingClientRect();
+      const phoneRect = document.getElementById('phone-frame').getBoundingClientRect();
+      const x = rect.left - phoneRect.left + rect.width / 2;
+      const y = rect.top - phoneRect.top + rect.height / 2;
+      this.particles.burstStars(x, y, 45);
+      this.particles.launchConfetti();
+    }
+
+    const timeSpent = this.maxTimer - this.remainingTimer;
+
+    // Send answer to server to log timestamp in user_answers & update score
+    try {
+      const res = await fetch('/api/puzzle/answer', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          phone_number: this.phoneNumber,
+          puzzle_id: this.currentPuzzle.id,
+          is_correct: true,
+          time_spent: timeSpent
+        })
+      });
+      const data = await res.json();
+      if (data.success) {
+        this.playerScore = data.new_score;
+        this.hudScore.textContent = this.playerScore;
+        this.answeredIn30Days++;
+        this.hudMonthProgress.textContent = `${this.answeredIn30Days}/${this.totalPuzzles}`;
+      }
+    } catch (e) {
+      console.warn('Backend answer sync error:', e);
+    }
+
+    if (this.speedBonusEnabled && !this.isZenMode) {
+      this.addTimeBonus(5);
+    }
+
+    // Victory modal details
+    document.getElementById('victory-word-display').textContent = this.currentPuzzle.word;
+    document.getElementById('v-base-score').textContent = '+250';
+    document.getElementById('v-time-score').textContent = `+${Math.max(0, this.remainingTimer * 6)}`;
+    document.getElementById('v-streak-score').textContent = `x${this.playerStreak}`;
+    document.getElementById('v-total-score').textContent = `+${250 + Math.max(0, this.remainingTimer * 6)}`;
+
+    const comments = [
+      'GOLAZO! Clean strike! The word is completed!',
+      'TASTEFUL FINISH! Top drawer football knowledge!',
+      'BALLON D\'OR FORM! Your memory of the pitch is legendary!',
+      'MAGNIFICENT! You cracked the word with clinical speed!'
+    ];
+    this.mascotSpeech.textContent = comments[Math.floor(Math.random() * comments.length)];
+
+    setTimeout(() => {
+      this.sound.playFanfare();
+      this.openModal(this.victoryModal);
+    }, 650);
+  }
+
+  handleWrongAnswer() {
+    this.sound.playWrong();
+    this.playerStreak = 1;
+    this.hudStreak.textContent = 'x1';
+
+    this.puzzleBoard.classList.add('shake');
+    setTimeout(() => this.puzzleBoard.classList.remove('shake'), 400);
+
+    this.mascotSpeech.textContent = 'Foul! The letters do not spell the correct historic word. Re-check your gaps!';
+  }
+
+  // ==========================================================================
+  // MODIFIABLE MATCH TIMER
   // ==========================================================================
   updateTimerModalInputs() {
     this.customTimerSlider.value = this.isZenMode ? 0 : this.maxTimer;
@@ -390,8 +596,8 @@ class SoccerPuzzleGame {
     this.updateTimerDisplay();
 
     this.mascotSpeech.textContent = this.isZenMode 
-      ? 'Training Ground active! Relax, analyze the pitch at your own pace.'
-      : `Match Clock set to ${this.maxTimer} seconds! Keep your eye on the ball!`;
+      ? 'Training Ground active! Relax, solve words at your own pace.'
+      : `Match Clock modified to ${this.maxTimer} seconds! Keep sharp!`;
   }
 
   startTimer() {
@@ -469,351 +675,27 @@ class SoccerPuzzleGame {
 
   handleTimeExpired() {
     this.sound.playWhistle(false);
-    const solutionText = this.activePuzzle.missingWords.join(', ');
-    document.getElementById('timeup-solution').textContent = solutionText;
-    this.streak = 1;
-    this.updateStreakDisplay();
+    document.getElementById('timeup-solution').textContent = this.currentPuzzle.word;
+    this.playerStreak = 1;
+    this.hudStreak.textContent = 'x1';
     this.openModal(this.timeupModal);
   }
 
   // ==========================================================================
-  // SCENARIO INITIALIZATION & RENDERING
-  // ==========================================================================
-  getActiveCategoryPuzzles() {
-    if (this.isBlitzMode) {
-      return [...this.puzzles, ...this.blitzExtra];
-    }
-    const currentTournament = this.tournaments[this.currentRealmIndex];
-    return this.puzzles.filter(p => p.realm === currentTournament.name);
-  }
-
-  startPuzzle() {
-    this.stopTimer();
-
-    const categoryPuzzles = this.getActiveCategoryPuzzles();
-    if (this.currentPuzzleIndex >= categoryPuzzles.length) {
-      this.currentPuzzleIndex = 0;
-    }
-
-    if (this.isBlitzMode) {
-      const randomIdx = Math.floor(Math.random() * categoryPuzzles.length);
-      this.activePuzzle = categoryPuzzles[randomIdx];
-      this.hudRealmIcon.textContent = '⚡';
-      this.hudRealmName.textContent = 'Shootout Blitz';
-      this.hudPuzzleStep.textContent = `Score: ${this.score}`;
-    } else {
-      this.activePuzzle = categoryPuzzles[this.currentPuzzleIndex];
-      const tournament = this.tournaments[this.currentRealmIndex];
-      this.hudRealmIcon.textContent = tournament.icon;
-      this.hudRealmName.textContent = tournament.name;
-      this.hudPuzzleStep.textContent = `${this.currentPuzzleIndex + 1}/${categoryPuzzles.length}`;
-    }
-
-    // Scenario meta
-    if (this.scenarioYear) this.scenarioYear.textContent = this.activePuzzle.year || 'HISTORIC';
-    this.puzzleTitle.textContent = this.activePuzzle.title;
-    if (this.matchTeamsBar) this.matchTeamsBar.textContent = `⚽ ${this.activePuzzle.teams || this.activePuzzle.realm}`;
-    this.puzzleDifficulty.textContent = '⭐'.repeat(this.activePuzzle.missingWords.length + 1);
-
-    // Reset hints
-    this.usedHints = { clue: false, letter: false, eliminate: false };
-    this.hintClueBtn.classList.remove('used');
-    this.hintLetterBtn.classList.remove('used');
-    this.hintEliminateBtn.classList.remove('used');
-    this.hintClueText.textContent = 'Tactical Clue';
-
-    // Reset slots
-    this.slottedWords = new Array(this.activePuzzle.missingWords.length).fill(null);
-    this.activeSlotIdx = 0;
-
-    // Build word pool (missing words + distractors, shuffled)
-    const combinedWords = [...this.activePuzzle.missingWords, ...(this.activePuzzle.distractors || [])];
-    this.availableWords = this.shuffleArray(combinedWords).map((word, idx) => ({
-      id: `w-${idx}-${word}`,
-      word: word.toUpperCase(),
-      placed: false
-    }));
-
-    this.renderSentence();
-    this.renderWordBank();
-    this.mascotSpeech.textContent = `Scenario #${this.currentPuzzleIndex + 1}: Fill the gaps to complete this legendary football moment!`;
-
-    // Start modifiable timer
-    this.startTimer();
-  }
-
-  renderSentence() {
-    this.sentenceContainer.innerHTML = '';
-    const text = this.activePuzzle.text;
-    const parts = text.split(/(\{\{\d+\}\})/g);
-
-    parts.forEach(part => {
-      const match = part.match(/\{\{(\d+)\}\}/);
-      if (match) {
-        const slotIdx = parseInt(match[1], 10);
-        const slotEl = document.createElement('button');
-        slotEl.className = 'word-slot';
-        slotEl.setAttribute('data-slot-idx', slotIdx);
-        slotEl.id = `slot-${slotIdx}`;
-
-        const slottedWord = this.slottedWords[slotIdx];
-        if (slottedWord) {
-          slotEl.classList.add('filled');
-          slotEl.innerHTML = `<span>${slottedWord}</span><span class="slot-remove-icon">✕</span>`;
-          slotEl.addEventListener('click', () => {
-            this.unslotWord(slotIdx);
-          });
-        } else {
-          slotEl.classList.add('empty');
-          if (slotIdx === this.activeSlotIdx) {
-            slotEl.classList.add('active');
-          }
-          const expectedWord = this.activePuzzle.missingWords[slotIdx];
-          slotEl.innerHTML = `<span class="word-slot-placeholder">[ GAP #${slotIdx + 1} (${expectedWord.length}) ]</span>`;
-          slotEl.addEventListener('click', () => {
-            this.setActiveSlot(slotIdx);
-          });
-        }
-
-        this.sentenceContainer.appendChild(slotEl);
-      } else if (part.trim().length > 0 || part === ' ') {
-        const span = document.createElement('span');
-        span.textContent = part;
-        this.sentenceContainer.appendChild(span);
-      }
-    });
-
-    this.updateCheckButtonState();
-  }
-
-  renderWordBank() {
-    this.wordBankGrid.innerHTML = '';
-    this.availableWords.forEach((wordObj) => {
-      const chip = document.createElement('button');
-      chip.className = 'runic-word-chip';
-      if (wordObj.placed) chip.classList.add('placed');
-      chip.id = wordObj.id;
-      chip.innerHTML = `<span>${wordObj.word}</span>`;
-
-      chip.addEventListener('click', () => {
-        if (!wordObj.placed) {
-          this.slotWord(wordObj.word, wordObj.id);
-        }
-      });
-
-      this.wordBankGrid.appendChild(chip);
-    });
-  }
-
-  setActiveSlot(idx) {
-    this.activeSlotIdx = idx;
-    document.querySelectorAll('.word-slot.empty').forEach(slot => {
-      const slotIdx = parseInt(slot.getAttribute('data-slot-idx'), 10);
-      slot.classList.toggle('active', slotIdx === idx);
-    });
-    this.sound.playTap();
-  }
-
-  slotWord(word, wordId) {
-    let targetSlot = this.activeSlotIdx;
-    if (this.slottedWords[targetSlot] !== null) {
-      targetSlot = this.slottedWords.findIndex(w => w === null);
-    }
-    if (targetSlot === -1) {
-      targetSlot = this.activeSlotIdx;
-      const oldWord = this.slottedWords[targetSlot];
-      const oldObj = this.availableWords.find(w => w.word === oldWord && w.placed);
-      if (oldObj) oldObj.placed = false;
-    }
-
-    this.slottedWords[targetSlot] = word;
-    const wordObj = this.availableWords.find(w => w.id === wordId);
-    if (wordObj) wordObj.placed = true;
-
-    const nextEmpty = this.slottedWords.findIndex(w => w === null);
-    this.activeSlotIdx = nextEmpty !== -1 ? nextEmpty : targetSlot;
-
-    this.sound.playSlot();
-    this.renderSentence();
-    this.renderWordBank();
-
-    if (this.slottedWords.every(w => w !== null)) {
-      setTimeout(() => {
-        this.verifyAnswer();
-      }, 200);
-    }
-  }
-
-  unslotWord(slotIdx) {
-    const word = this.slottedWords[slotIdx];
-    if (!word) return;
-
-    this.slottedWords[slotIdx] = null;
-    this.activeSlotIdx = slotIdx;
-
-    const wordObj = this.availableWords.find(w => w.word === word && w.placed);
-    if (wordObj) wordObj.placed = false;
-
-    this.sound.playUnslot();
-    this.renderSentence();
-    this.renderWordBank();
-  }
-
-  unslotActiveOrLast() {
-    let slotToClear = this.activeSlotIdx;
-    if (this.slottedWords[slotToClear] === null) {
-      for (let i = this.slottedWords.length - 1; i >= 0; i--) {
-        if (this.slottedWords[i] !== null) {
-          slotToClear = i;
-          break;
-        }
-      }
-    }
-    if (this.slottedWords[slotToClear] !== null) {
-      this.unslotWord(slotToClear);
-    }
-  }
-
-  clearAllSlots() {
-    this.slottedWords.fill(null);
-    this.availableWords.forEach(w => w.placed = false);
-    this.activeSlotIdx = 0;
-    this.renderSentence();
-    this.renderWordBank();
-  }
-
-  shuffleAvailableWords() {
-    this.availableWords = this.shuffleArray(this.availableWords);
-    this.renderWordBank();
-  }
-
-  updateCheckButtonState() {
-    const hasAnyFilled = this.slottedWords.some(w => w !== null);
-    this.checkAnswerBtn.disabled = !hasAnyFilled;
-  }
-
-  // ==========================================================================
-  // ANSWER VERIFICATION & CELEBRATION
-  // ==========================================================================
-  verifyAnswer() {
-    const isComplete = this.slottedWords.every(w => w !== null);
-    if (!isComplete) {
-      this.mascotSpeech.textContent = 'Referee whistle! Fill in all scenario gaps before submitting!';
-      this.sound.playWrong();
-      this.puzzleBoard.classList.add('shake');
-      setTimeout(() => this.puzzleBoard.classList.remove('shake'), 400);
-      return;
-    }
-
-    const expected = this.activePuzzle.missingWords.map(w => w.toUpperCase());
-    const isCorrect = this.slottedWords.every((w, idx) => w === expected[idx]);
-
-    if (isCorrect) {
-      this.handleCorrectAnswer();
-    } else {
-      this.handleWrongAnswer();
-    }
-  }
-
-  handleCorrectAnswer() {
-    this.stopTimer();
-
-    document.querySelectorAll('.word-slot').forEach(slot => {
-      slot.classList.add('correct-pulse');
-    });
-
-    this.sound.playCorrect(this.streak);
-    this.streak++;
-    if (this.streak > this.highestStreak) this.highestStreak = this.streak;
-    this.updateStreakDisplay();
-
-    // Fireworks & Confetti
-    if (this.particles) {
-      const rect = this.puzzleBoard.getBoundingClientRect();
-      const phoneRect = document.getElementById('phone-frame').getBoundingClientRect();
-      const x = rect.left - phoneRect.left + rect.width / 2;
-      const y = rect.top - phoneRect.top + rect.height / 2;
-      this.particles.burstStars(x, y, 40);
-      this.particles.launchConfetti();
-    }
-
-    const baseScore = 300;
-    const timeScore = this.isZenMode ? 50 : Math.round(this.remainingTimer * 8);
-    const streakBonus = Math.round(baseScore * (this.streak * 0.2));
-    const roundTotal = baseScore + timeScore + streakBonus;
-
-    this.score += roundTotal;
-    this.solvedCount++;
-    this.hudScore.textContent = this.score;
-    this.savePreferences();
-
-    if (this.speedBonusEnabled && !this.isZenMode) {
-      this.addTimeBonus(5);
-    }
-
-    document.getElementById('v-base-score').textContent = `+${baseScore}`;
-    document.getElementById('v-time-score').textContent = `+${timeScore}`;
-    document.getElementById('v-streak-score').textContent = `x${this.streak}`;
-    document.getElementById('v-total-score').textContent = `+${roundTotal}`;
-
-    const comments = [
-      'WHAT A FINISH! Top corner precision on this historic moment!',
-      'GOLAZO! Superb football IQ, you read the game like a tactical genius!',
-      'BALLON D\'OR FORM! The crowd is on their feet!',
-      'UNSTOPPABLE! What a clinical piece of football history knowledge!'
-    ];
-    this.mascotSpeech.textContent = comments[Math.floor(Math.random() * comments.length)];
-
-    setTimeout(() => {
-      this.sound.playFanfare();
-      this.openModal(this.victoryModal);
-    }, 650);
-  }
-
-  handleWrongAnswer() {
-    this.sound.playWrong();
-    this.streak = 1;
-    this.updateStreakDisplay();
-
-    this.puzzleBoard.classList.add('shake');
-    setTimeout(() => this.puzzleBoard.classList.remove('shake'), 400);
-
-    this.mascotSpeech.textContent = 'VAR Review: Off target! Check the players or terms and have another shot.';
-  }
-
-  advanceToNextPuzzle() {
-    this.currentPuzzleIndex++;
-    this.startPuzzle();
-  }
-
-  updateStreakDisplay() {
-    this.hudStreak.textContent = `x${this.streak}`;
-    if (this.streak >= 3) {
-      this.hudStreakWrap.style.transform = 'scale(1.15)';
-    } else {
-      this.hudStreakWrap.style.transform = '';
-    }
-  }
-
-  // ==========================================================================
-  // HINTS SYSTEM
+  // HINTS & CATEGORY FILTER
   // ==========================================================================
   useClueHint() {
     if (this.usedHints.clue) return;
     this.usedHints.clue = true;
     this.hintClueBtn.classList.add('used');
     this.hintClueText.textContent = 'Clue Given';
-    this.mascotSpeech.textContent = `📋 Tactical Clue: ${this.activePuzzle.hint || 'Think of the teams and decisive match players!'}`;
-    this.sound.playSlot();
-  }
 
-  useLetterHint() {
-    if (this.usedHints.letter) return;
-    this.usedHints.letter = true;
-    this.hintLetterBtn.classList.add('used');
-
-    const firstLetters = this.activePuzzle.firstLetters || this.activePuzzle.missingWords.map(w => w[0]);
-    this.mascotSpeech.textContent = `🔤 Initials: ${firstLetters.map((l, i) => `Gap #${i + 1} starts with '${l}'`).join(', ')}`;
+    const firstMissing = this.gapSlots.find(g => g.slottedChar === null);
+    if (firstMissing) {
+      this.mascotSpeech.textContent = `💡 Letter Clue: The next gap is '${firstMissing.expectedChar}'!`;
+    } else {
+      this.mascotSpeech.textContent = `💡 Category: ${this.currentPuzzle.category} (${this.currentPuzzle.year || ''})`;
+    }
     this.sound.playSlot();
   }
 
@@ -822,119 +704,281 @@ class SoccerPuzzleGame {
     this.usedHints.eliminate = true;
     this.hintEliminateBtn.classList.add('used');
 
-    const missing = this.activePuzzle.missingWords.map(w => w.toUpperCase());
-    const distractors = this.availableWords.filter(w => !missing.includes(w.word) && !w.placed);
+    const expectedLetters = this.gapSlots.map(g => g.expectedChar);
+    const distractors = this.letterBank.filter(l => !expectedLetters.includes(l.char) && !l.placed);
 
     if (distractors.length > 0) {
-      distractors.slice(0, 2).forEach(d => {
-        d.placed = true;
-      });
-      this.renderWordBank();
-      this.mascotSpeech.textContent = '🟥 Substituted 2 incorrect players out of the dugout!';
+      distractors.slice(0, 2).forEach(d => d.placed = true);
+      this.renderLetterBank();
+      this.mascotSpeech.textContent = '🟥 Banished 2 incorrect letters from the dugout!';
       this.sound.playUnslot();
     }
   }
 
-  // ==========================================================================
-  // TOURNAMENT MODAL & CUSTOM PUZZLE CREATOR
-  // ==========================================================================
-  renderTournamentModalList() {
+  async renderCategoryModal() {
     const list = document.getElementById('realm-cards-list');
-    list.innerHTML = '';
+    list.innerHTML = '<div style="color: var(--text-muted); text-align: center;">Loading categories...</div>';
 
-    this.tournaments.forEach((t, idx) => {
-      const card = document.createElement('div');
-      card.className = 'realm-card';
-      if (!this.isBlitzMode && this.currentRealmIndex === idx) card.classList.add('active');
+    try {
+      const res = await fetch('/api/categories');
+      const categories = await res.json();
+      list.innerHTML = '';
 
-      const matches = this.puzzles.filter(p => p.realm === t.name);
-      card.innerHTML = `
+      // All categories option
+      const allCard = document.createElement('div');
+      allCard.className = 'realm-card';
+      if (!this.selectedCategory) allCard.classList.add('active');
+      allCard.innerHTML = `
         <div class="realm-card-left">
-          <div class="realm-card-icon">${t.icon}</div>
+          <div class="realm-card-icon">🌍</div>
           <div>
-            <div class="realm-card-title">${t.name}</div>
-            <div class="realm-card-count">${matches.length} Historic Scenarios</div>
+            <div class="realm-card-title">All Historic Eras</div>
+            <div class="realm-card-count">Full 120+ football word library</div>
           </div>
         </div>
         <span style="font-size: 14px; color: var(--gold-400);">▶</span>
       `;
-
-      card.addEventListener('click', () => {
-        this.isBlitzMode = false;
-        this.currentRealmIndex = idx;
-        this.currentPuzzleIndex = 0;
+      allCard.addEventListener('click', () => {
+        this.selectedCategory = null;
         this.closeModal(this.realmModal);
-        this.startPuzzle();
+        this.fetchNextPuzzle();
         this.sound.playWhistle(true);
       });
+      list.appendChild(allCard);
 
-      list.appendChild(card);
-    });
+      categories.forEach(cat => {
+        const card = document.createElement('div');
+        card.className = 'realm-card';
+        if (this.selectedCategory === cat.category) card.classList.add('active');
+        card.innerHTML = `
+          <div class="realm-card-left">
+            <div class="realm-card-icon">⚽</div>
+            <div>
+              <div class="realm-card-title">${cat.category}</div>
+              <div class="realm-card-count">${cat.count} Historic Words</div>
+            </div>
+          </div>
+          <span style="font-size: 14px; color: var(--gold-400);">▶</span>
+        `;
+        card.addEventListener('click', () => {
+          this.selectedCategory = cat.category;
+          this.closeModal(this.realmModal);
+          this.fetchNextPuzzle();
+          this.sound.playWhistle(true);
+        });
+        list.appendChild(card);
+      });
+    } catch (e) {
+      list.innerHTML = '<div style="color: #f87171;">Failed to load categories.</div>';
+    }
   }
 
-  handleCustomPuzzleCreation() {
-    const textInput = document.getElementById('custom-text-input').value.trim();
-    const distractorsInput = document.getElementById('custom-distractors-input').value.trim();
-    const hintInput = document.getElementById('custom-hint-input').value.trim();
-
-    if (!textInput) {
-      alert('Please enter a soccer scenario.');
-      return;
-    }
-
-    const missingWords = [];
-    const parsedText = textInput.replace(/\[(.*?)\]/g, (match, word) => {
-      const idx = missingWords.length;
-      missingWords.push(word.trim().toUpperCase());
-      return `{{${idx}}}`;
+  // ==========================================================================
+  // EVENT BINDINGS
+  // ==========================================================================
+  bindEvents() {
+    // Phone pill triggers profile modal
+    this.phonePillBtn.addEventListener('click', () => {
+      this.phoneInput.value = this.phoneNumber || '';
+      this.openModal(this.phoneModal);
+      this.sound.playTap();
     });
 
-    if (missingWords.length === 0) {
-      alert('Please enclose at least one missing word in brackets, like [RONALDO] or [VOLLEY]!');
-      return;
+    const quickPhoneBtn = document.getElementById('quick-phone-bar-btn');
+    if (quickPhoneBtn) {
+      quickPhoneBtn.addEventListener('click', () => {
+        this.phoneInput.value = this.phoneNumber || '';
+        this.openModal(this.phoneModal);
+        this.sound.playTap();
+      });
     }
 
-    const distractors = distractorsInput 
-      ? distractorsInput.split(',').map(s => s.trim().toUpperCase()).filter(Boolean)
-      : ['MESSI', 'HEADER', 'CHAMPION', 'GOAL'];
+    // Save phone submit
+    this.savePhoneBtn.addEventListener('click', () => {
+      const inputVal = this.phoneInput.value.trim();
+      if (!inputVal) {
+        alert('Please enter a phone number to start playing.');
+        return;
+      }
+      this.initPlayerSession(inputVal);
+      this.sound.playWhistle(true);
+    });
 
-    const customPuzzle = {
-      id: `custom-${Date.now()}`,
-      realm: 'Custom Pitch',
-      realmIcon: '✍️',
-      title: 'Custom Historic Scenario',
-      teams: 'Friendly Exhibition',
-      year: 'CUSTOM',
-      text: parsedText,
-      missingWords: missingWords,
-      distractors: distractors,
-      hint: hintInput || 'A user-crafted football scenario.',
-      firstLetters: missingWords.map(w => w[0])
-    };
+    // View switchers
+    const desktopWrapper = document.getElementById('desktop-wrapper');
+    const viewPhoneBtn = document.getElementById('view-mode-phone');
+    const viewExpandBtn = document.getElementById('view-mode-expand');
+    const quickTimerBarBtn = document.getElementById('quick-timer-bar-btn');
 
-    this.activePuzzle = customPuzzle;
-    this.closeModal(this.customModal);
-    this.hudRealmIcon.textContent = '✍️';
-    this.hudRealmName.textContent = 'Custom Scenario';
-    this.hudPuzzleStep.textContent = 'Custom';
+    viewPhoneBtn.addEventListener('click', () => {
+      desktopWrapper.classList.remove('fullscreen-mode');
+      viewPhoneBtn.classList.add('active');
+      viewExpandBtn.classList.remove('active');
+      this.sound.playTap();
+      if (this.particles) this.particles.resize();
+    });
 
-    this.slottedWords = new Array(missingWords.length).fill(null);
-    this.activeSlotIdx = 0;
-    const combined = [...missingWords, ...distractors];
-    this.availableWords = this.shuffleArray(combined).map((w, i) => ({
-      id: `cw-${i}-${w}`,
-      word: w,
-      placed: false
-    }));
+    viewExpandBtn.addEventListener('click', () => {
+      desktopWrapper.classList.add('fullscreen-mode');
+      viewExpandBtn.classList.add('active');
+      viewPhoneBtn.classList.remove('active');
+      this.sound.playTap();
+      if (this.particles) this.particles.resize();
+    });
 
-    if (this.scenarioYear) this.scenarioYear.textContent = 'CUSTOM';
-    this.puzzleTitle.textContent = customPuzzle.title;
-    if (this.matchTeamsBar) this.matchTeamsBar.textContent = '⚽ Custom Historic Match';
-    this.puzzleDifficulty.textContent = '⭐⭐⭐';
-    this.renderSentence();
-    this.renderWordBank();
-    this.startTimer();
-    this.sound.playWhistle(true);
+    if (quickTimerBarBtn) {
+      quickTimerBarBtn.addEventListener('click', () => {
+        this.openModal(this.timerModal);
+        this.sound.playTap();
+      });
+    }
+
+    this.hudTimerBtn.addEventListener('click', () => {
+      this.openModal(this.timerModal);
+      this.sound.playTap();
+    });
+
+    // Whistle sound
+    const whistleBtn = document.getElementById('whistle-sound-btn');
+    if (whistleBtn) {
+      whistleBtn.addEventListener('click', () => this.sound.playWhistle(false));
+    }
+
+    // Sound toggle
+    const soundBtn = document.getElementById('sound-btn');
+    soundBtn.addEventListener('click', () => {
+      const state = this.sound.toggleSound();
+      soundBtn.textContent = state ? '🔊' : '🔇';
+      this.sound.playTap();
+    });
+
+    // Category filter button
+    document.getElementById('category-filter-btn').addEventListener('click', () => {
+      this.renderCategoryModal();
+      this.openModal(this.realmModal);
+      this.sound.playTap();
+    });
+
+    // Settings button
+    document.getElementById('settings-btn').addEventListener('click', () => {
+      this.openModal(this.settingsModal);
+      this.sound.playTap();
+    });
+
+    document.getElementById('switch-phone-btn').addEventListener('click', () => {
+      this.closeModal(this.settingsModal);
+      this.phoneInput.value = this.phoneNumber || '';
+      this.openModal(this.phoneModal);
+    });
+
+    // Modal close handlers
+    document.querySelectorAll('[data-close]').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        const modalId = e.currentTarget.getAttribute('data-close');
+        const modal = document.getElementById(modalId);
+        if (modal) {
+          this.closeModal(modal);
+          this.sound.playTap();
+        }
+      });
+    });
+
+    document.querySelectorAll('.game-modal').forEach(modal => {
+      modal.addEventListener('click', (e) => {
+        if (e.target === modal) this.closeModal(modal);
+      });
+    });
+
+    // Game action buttons
+    this.clearSlotsBtn.addEventListener('click', () => {
+      this.clearAllSlots();
+      this.sound.playUnslot();
+    });
+
+    this.checkAnswerBtn.addEventListener('click', () => {
+      this.verifyAnswer();
+    });
+
+    this.shuffleWordsBtn.addEventListener('click', () => {
+      this.shuffleAvailableWords();
+      this.sound.playTap();
+    });
+
+    this.hintClueBtn.addEventListener('click', () => this.useClueHint());
+    this.hintEliminateBtn.addEventListener('click', () => this.useEliminateHint());
+    this.skipPuzzleBtn.addEventListener('click', () => {
+      this.fetchNextPuzzle();
+      this.sound.playTap();
+    });
+
+    // Timer modal controls
+    document.querySelectorAll('.timer-preset-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('.timer-preset-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        const timeVal = parseInt(btn.getAttribute('data-time'), 10);
+        if (timeVal === 0) {
+          this.customTimerSlider.value = 0;
+          this.sliderTimerVal.textContent = 'Training Ground (Untimed)';
+        } else {
+          this.customTimerSlider.value = timeVal;
+          this.sliderTimerVal.textContent = `${timeVal} seconds`;
+        }
+        this.sound.playTap();
+      });
+    });
+
+    this.customTimerSlider.addEventListener('input', (e) => {
+      const val = parseInt(e.target.value, 10);
+      this.sliderTimerVal.textContent = `${val} seconds`;
+      document.querySelectorAll('.timer-preset-btn').forEach(b => {
+        b.classList.toggle('active', parseInt(b.getAttribute('data-time'), 10) === val);
+      });
+    });
+
+    this.saveTimerBtn.addEventListener('click', () => {
+      this.applyModifiedTimerSettings();
+      this.closeModal(this.timerModal);
+      this.sound.playWhistle(true);
+    });
+
+    // Victory modal buttons
+    document.getElementById('victory-next-btn').addEventListener('click', () => {
+      this.closeModal(this.victoryModal);
+      this.fetchNextPuzzle();
+    });
+    document.getElementById('victory-profile-btn').addEventListener('click', () => {
+      this.closeModal(this.victoryModal);
+      this.openModal(this.phoneModal);
+    });
+
+    // Time Up retry
+    document.getElementById('timeup-retry-btn').addEventListener('click', () => {
+      this.closeModal(this.timeupModal);
+      this.clearAllSlots();
+      this.startTimer();
+    });
+    document.getElementById('timeup-adjust-timer-btn').addEventListener('click', () => {
+      this.closeModal(this.timeupModal);
+      this.openModal(this.timerModal);
+    });
+
+    // Physical Keyboard Support (A-Z to slot, Backspace to undo, Enter to complete)
+    window.addEventListener('keydown', (e) => {
+      if (document.querySelector('.game-modal.active')) return;
+      const key = e.key.toUpperCase();
+      if (/^[A-Z]$/.test(key)) {
+        // Find matching letter in available bank
+        const bankItem = this.letterBank.find(l => l.char === key && !l.placed);
+        if (bankItem) {
+          this.slotLetter(bankItem.char, bankItem.id);
+        }
+      } else if (e.key === 'Backspace') {
+        this.unslotActiveOrLast();
+      } else if (e.key === 'Enter') {
+        this.verifyAnswer();
+      }
+    });
   }
 
   // ==========================================================================
@@ -960,7 +1004,7 @@ class SoccerPuzzleGame {
   }
 }
 
-// Kickoff game on page load
+// Kickoff
 window.addEventListener('DOMContentLoaded', () => {
-  window.game = new SoccerPuzzleGame();
+  window.game = new SoccerWordGapGame();
 });
