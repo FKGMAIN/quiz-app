@@ -3,477 +3,137 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-  <title>Pitch Legends: Historic Football Word Gap Puzzle</title>
-  <meta name="description" content="Test your soccer history knowledge! Complete missing letters in historic football words, players, and stadiums. Session tied to your phone number with a 30-day non-repeat cooldown.">
-
-  <!-- Typography -->
+  <title>Pitch Legends</title>
+  <script>
+    // Apply saved/system theme before first paint (no flash)
+    (function () {
+      try {
+        var t = localStorage.getItem('soccer_theme');
+        if (t !== 'light' && t !== 'dark') t = (window.matchMedia && matchMedia('(prefers-color-scheme: light)').matches) ? 'light' : 'dark';
+        document.documentElement.setAttribute('data-theme', t);
+      } catch (e) { document.documentElement.setAttribute('data-theme', 'dark'); }
+    })();
+  </script>
+  <meta name="theme-color" content="#0e1a14" id="meta-theme-color">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@700;800;900&family=Outfit:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
-
+  <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@600;800&family=Instrument+Sans:wght@500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <!-- Ambient background glow on desktop -->
-  <div class="ambient-bg"></div>
+  <main class="app" id="app">
+    <header class="top">
+      <div class="chip"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--accentText)" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3c1 4 5 5.5 5 10a5 5 0 0 1-10 0c0-2 1-3 2-4 0 2 1 3 2 3 0-3-1-5 1-9z"/></svg><span id="hud-streak">Streak x1</span></div>
+      <div class="spacer"></div>
+      <div class="chip" id="timer-chip"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--muted)" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="13" r="8"/><path d="M12 9v4l2 2M9 2h6"/></svg><span id="hud-timer">0:45</span></div>
+      <button class="icon-btn" id="settings-btn" aria-label="Settings"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 7h10M18 7h2M4 17h2M10 17h10"/><circle cx="16" cy="7" r="2"/><circle cx="8" cy="17" r="2"/></svg></button>
+    </header>
 
-  <!-- Desktop floating top bar (View mode switch) -->
-  <div class="desktop-bar" id="desktop-bar">
-    <button id="view-mode-phone" class="active">📱 Mobile View</button>
-    <button id="view-mode-expand">🖥️ Full Stadium View</button>
-    <button id="quick-phone-bar-btn">📱 Player Profile</button>
-    <button id="quick-timer-bar-btn">⏱️ Match Timer (Modify)</button>
+    <div class="progress">
+      <div class="progress-row"><span id="round-label">Streak 0 of 4 · Easy</span><span id="hud-score">0 pts</span></div>
+      <div class="segments" id="segments"></div>
+    </div>
+
+    <section class="stage">
+      <div class="word" id="word" aria-live="polite"></div>
+      <div class="status" id="status" aria-live="polite">&nbsp;</div>
+    </section>
+
+    <div class="helpers">
+      <button class="helper-btn" id="reveal-btn"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 18h6M10 21h4M12 3a6 6 0 0 0-4 10.5c.7.7 1 1.5 1 2.5h6c0-1 .3-1.8 1-2.5A6 6 0 0 0 12 3z"/></svg><span>Reveal a letter</span><span class="dim" id="reveal-left">· 1 left</span></button>
+      <button class="undo-btn" id="undo-btn" aria-label="Remove last letter"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 5H9l-6 7 6 7h11z"/><path d="M14 9l4 6M18 9l-4 6"/></svg></button>
+    </div>
+
+    <section class="tray" id="tray" aria-label="Letters"></section>
+
+    <button class="primary" id="primary-btn" disabled>Check</button>
+    <button class="ghost" id="skip-btn">Skip this word</button>
+  </main>
+
+  <!-- Solved / missed -->
+  <div class="screen" id="result-screen">
+    <div class="screen-inner">
+      <div class="progress-row"><span id="r-label">Streak 0 of 4 · Easy</span><span class="r-state" id="r-state">Solved</span></div>
+      <div class="segments" id="r-segments"></div>
+      <div class="result-body">
+        <div class="result-icon" id="result-icon"></div>
+        <div>
+          <div class="eyebrow" id="result-eyebrow">Correct</div>
+          <h1 class="result-word" id="result-word"></h1>
+        </div>
+        <div class="stats">
+          <div class="stat-card"><div class="stat-num" id="r-points">+0</div><div class="stat-cap" id="r-points-cap">points</div></div>
+          <div class="stat-card"><div class="stat-num" id="r-time">0s</div><div class="stat-cap" id="r-time-cap">solve time</div></div>
+          <div class="stat-card"><div class="stat-num" id="r-streak">0</div><div class="stat-cap" id="r-streak-cap">streak</div></div>
+        </div>
+        <div class="result-note" id="result-note"></div>
+      </div>
+      <button class="primary" id="next-btn">Next word</button>
+      <button class="ghost outline" id="share-btn">Share result</button>
+    </div>
   </div>
 
-  <div class="desktop-wrapper" id="desktop-wrapper">
-    <!-- Simulated Smartphone Shell Container -->
-    <main class="phone-frame" id="phone-frame">
-      <!-- Dynamic Phone Island / Notch -->
-      <div class="phone-island">
-        <div class="island-camera"></div>
-        <div class="island-speaker"></div>
-      </div>
-
-      <!-- Canvas Particle Layer (Sparks, Confetti, Motes) -->
-      <canvas id="fx-canvas"></canvas>
-
-      <!-- Game Inner Viewport -->
-      <div class="game-viewport">
-        <div class="game-content">
-
-          <!-- GAME HUD HEADER -->
-          <header class="hud-header">
-            <div class="hud-top-row">
-              <!-- Player Phone Number / Profile Pill -->
-              <button class="realm-pill" id="phone-pill-btn" title="Phone Session & 30-Day Progress">
-                <span>📱</span>
-                <span class="realm-name" id="hud-phone-text">Player Login</span>
-                <span class="realm-step" id="hud-month-progress">0/120</span>
-                <span style="font-size: 10px; color: var(--gold-400);">▼</span>
-              </button>
-
-              <!-- Actions (Referee Whistle, Sound, Settings) -->
-              <div class="hud-actions">
-                <button class="icon-btn" id="whistle-sound-btn" title="Blow Referee Whistle">📢</button>
-                <button class="icon-btn" id="sound-btn" title="Toggle Sound FX">🔊</button>
-                <button class="icon-btn" id="category-filter-btn" title="Select Category Era">🏆</button>
-                <button class="icon-btn" id="settings-btn" title="Game Settings">⚙️</button>
-              </div>
-            </div>
-
-            <!-- Stats & Modifiable Timer Row -->
-            <div class="hud-stats-row">
-              <!-- Score Counter -->
-              <div class="stat-item">
-                <span class="stat-icon">⚽</span>
-                <div>
-                  <div class="stat-value" id="hud-score">0</div>
-                  <div class="stat-label">Points</div>
-                </div>
-              </div>
-
-              <!-- Modifiable Timer Container (Clickable to customize match time) -->
-              <div class="timer-container" id="timer-hud-btn" title="Click to Modify Match Timer">
-                <div class="timer-svg-wrap">
-                  <svg class="timer-svg" viewBox="0 0 36 36">
-                    <path class="timer-bg-circle" stroke-width="3.5" fill="none"
-                      d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" />
-                    <path class="timer-progress-circle" id="timer-circle" stroke-width="3.5" fill="none"
-                      d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" />
-                  </svg>
-                </div>
-                <div class="timer-text" id="hud-timer-text">45s</div>
-                <div class="timer-edit-badge" title="Modify Timer">✏️</div>
-              </div>
-
-              <!-- Goal Streak -->
-              <div class="streak-badge" id="hud-streak-wrap">
-                <span class="streak-flame">🔥</span>
-                <span class="streak-num" id="hud-streak">x1</span>
-              </div>
-            </div>
-          </header>
-
-          <!-- REFEREE MASCOT STRIP -->
-          <section class="mascot-strip" id="mascot-strip">
-            <div class="mascot-avatar-wrap">
-              <img src="assets/mascot.jpg" alt="Referee Barnaby" class="mascot-avatar" id="mascot-img">
-              <div class="mascot-status-dot"></div>
-            </div>
-            <div class="mascot-bubble">
-              <div class="mascot-name">Referee Barnaby</div>
-              <div id="mascot-speech">Complete the missing letters in the historic football word below!</div>
-            </div>
-          </section>
-
-          <!-- PUZZLE BOARD: HISTORIC SCENARIO CLUE + WORD GAP BOXES -->
-          <article class="puzzle-board" id="puzzle-board">
-            <div class="puzzle-title-bar">
-              <div style="display: flex; align-items: center; gap: 8px;">
-                <span class="scenario-year-badge" id="scenario-year">1986</span>
-                <span class="puzzle-title" id="puzzle-category">World Cup Legends</span>
-              </div>
-              <div class="puzzle-diff" id="puzzle-difficulty">⭐⭐⭐</div>
-            </div>
-
-            <!-- Team / Era Context -->
-            <div id="match-teams-bar" style="font-size: 11px; font-weight: 700; color: var(--gold-400); text-transform: uppercase; margin-bottom: 6px; letter-spacing: 0.5px;">
-              ⚽ Argentina
-            </div>
-
-            <!-- Historical Clue -->
-            <div id="historic-clue-box" class="historic-clue-text">
-              Argentina 1986 icon who scored the Hand of God and Goal of the Century against England.
-            </div>
-
-            <!-- WORD GAP DISPLAY CONTAINER (WORDS ONLY, LETTER GAPS) -->
-            <div class="word-gaps-wrapper" id="word-gaps-wrapper">
-              <!-- Dynamically rendered letter tiles and missing letter gaps -->
-            </div>
-
-            <!-- 30-Day Status Pill -->
-            <div class="cooldown-status-bar" id="cooldown-status-bar">
-              <span>🛡️ 30-Day Fresh Match Guarantee (No repeats)</span>
-            </div>
-
-            <!-- Hint & Assistance Tray -->
-            <div class="hint-bar">
-              <button class="hint-chip" id="hint-clue-btn">
-                <span>💡</span>
-                <span id="hint-clue-text">Letter Clue</span>
-              </button>
-              <button class="hint-chip" id="hint-eliminate-btn">
-                <span>🟥</span>
-                <span>Sub 2 Out</span>
-              </button>
-              <button class="hint-chip" id="skip-puzzle-btn">
-                <span>⏭️</span>
-                <span>Skip</span>
-              </button>
-            </div>
-          </article>
-
-          <!-- LETTER BANK TILES (LETTERS ONLY) -->
-          <section class="word-bank-section">
-            <div class="word-bank-header">
-              <div class="word-bank-title">Tactical Letters (Pick to Complete Word)</div>
-              <button class="shuffle-btn" id="shuffle-words-btn">🔀 Shuffle</button>
-            </div>
-            <div class="word-bank-grid" id="letter-bank-grid">
-              <!-- Dynamically generated letter chips -->
-            </div>
-          </section>
-
-          <!-- BOTTOM ACTION CONTROLS -->
-          <div class="action-controls">
-            <button class="game-btn btn-secondary" id="clear-slots-btn">
-              <span>↺</span> Reset
-            </button>
-            <button class="game-btn btn-primary" id="check-answer-btn">
-              <span>⚽</span> Complete Word
-            </button>
-          </div>
-
+  <!-- Welcome / sign in -->
+  <div class="screen" id="welcome-screen">
+    <div class="screen-inner welcome">
+      <div class="welcome-top">
+        <div class="logo" aria-hidden="true"><span class="lt">P</span><span class="lt gap"></span><span class="lt">T</span><span class="lt">C</span><span class="lt">H</span></div>
+        <div>
+          <h1 class="h1">Fill the gaps.<br>Name the legend.</h1>
+          <p class="lede">Get four in a row to win. Names from football, film, music, TV and games, getting harder with every streak. Each has letters missing. No clues, just what you remember.</p>
         </div>
       </div>
-
-      <!-- ================================================================
-           MODAL: PHONE NUMBER SESSION / LOGIN MODAL
-           ================================================================ -->
-      <div class="game-modal" id="phone-modal">
-        <div class="modal-card">
-          <div class="modal-header">
-            <h2 class="modal-title">📱 Player Phone Session</h2>
-            <button class="modal-close" data-close="phone-modal">✕</button>
-          </div>
-          <div class="modal-body">
-            <p style="font-size: 13px; color: var(--text-muted);">
-              Enter your mobile phone number. Your progress and answered questions are securely saved and <strong>will not repeat for a full month (30 days)</strong>!
-            </p>
-
-            <div>
-              <label style="font-size: 12px; font-weight: 700; color: var(--gold-300);">Phone Number:</label>
-              <input type="tel" class="custom-input" id="phone-input" placeholder="e.g. +1 555-0199 or 0712345678" style="font-size: 16px; font-weight: 700;">
-            </div>
-
-            <!-- 30-Day Session Overview Card -->
-            <div class="score-breakdown-card" id="phone-stats-card" style="display: none;">
-              <div class="score-line">
-                <span>Current Points:</span>
-                <span id="p-score" style="color: var(--gold-400); font-weight: 800;">0</span>
-              </div>
-              <div class="score-line">
-                <span>Active Streak:</span>
-                <span id="p-streak" style="color: var(--gold-400); font-weight: 800;">x1</span>
-              </div>
-              <div class="score-line">
-                <span>Answered in Past 30 Days:</span>
-                <span id="p-answered">0</span>
-              </div>
-              <div class="score-line">
-                <span>Fresh Available Questions:</span>
-                <span id="p-remaining" style="color: var(--emerald-400); font-weight: 800;">120</span>
-              </div>
-            </div>
-
-            <button class="game-btn btn-primary" id="save-phone-btn" style="margin-top: 4px;">
-              ⚽ Save & Start Playing
-            </button>
-          </div>
-        </div>
+      <div class="welcome-form">
+        <label for="phone-input" class="label">Your phone number</label>
+        <input class="field" id="phone-input" type="tel" inputmode="tel" autocomplete="tel" placeholder="0801 234 5678">
+        <div class="fine">We save your score and streak to this number. A word you play won't come back for 30 days.</div>
+        <div class="error" id="login-error" role="alert"></div>
+        <button class="primary" id="login-btn">Start playing</button>
+        <button class="ghost" id="login-cancel" hidden>Cancel</button>
       </div>
-
-      <!-- ================================================================
-           MODAL: MODIFIABLE MATCH TIMER CONFIGURATION
-           ================================================================ -->
-      <div class="game-modal" id="timer-modal">
-        <div class="modal-card">
-          <div class="modal-header">
-            <h2 class="modal-title">⏱️ Match Timer Settings</h2>
-            <button class="modal-close" data-close="timer-modal">✕</button>
-          </div>
-          <div class="modal-body">
-            <p style="font-size: 13px; color: var(--text-muted);">
-              Adjust the match countdown clock. Choose high-intensity stoppage time blitz, standard match pace, or infinite training mode!
-            </p>
-
-            <!-- Quick Presets -->
-            <div style="font-size: 12px; font-weight: 700; color: var(--gold-300); text-transform: uppercase;">Match Pace Presets</div>
-            <div class="timer-presets">
-              <button class="timer-preset-btn" data-time="15">
-                <span>15s</span>
-                <span class="preset-sub">⚡ Stoppage</span>
-              </button>
-              <button class="timer-preset-btn" data-time="30">
-                <span>30s</span>
-                <span class="preset-sub">🏃 Extra Time</span>
-              </button>
-              <button class="timer-preset-btn active" data-time="45">
-                <span>45s</span>
-                <span class="preset-sub">⚽ Half Time</span>
-              </button>
-              <button class="timer-preset-btn" data-time="60">
-                <span>60s</span>
-                <span class="preset-sub">🛡️ Pro Pace</span>
-              </button>
-              <button class="timer-preset-btn" data-time="90">
-                <span>90s</span>
-                <span class="preset-sub">🏆 Full 90'</span>
-              </button>
-              <button class="timer-preset-btn" data-time="0">
-                <span>Zen</span>
-                <span class="preset-sub">🧘 Training</span>
-              </button>
-            </div>
-
-            <!-- Custom Exact Slider -->
-            <div class="slider-group" id="timer-slider-group">
-              <div class="slider-label-row">
-                <span>Exact Seconds:</span>
-                <span class="slider-val-badge" id="slider-timer-val">45 seconds</span>
-              </div>
-              <input type="range" min="10" max="180" step="5" value="45" class="game-slider" id="custom-timer-slider">
-            </div>
-
-            <!-- Additional Modifiers -->
-            <div class="toggle-row">
-              <div class="toggle-info">
-                <div class="toggle-title">⚡ Goal Bonus Time</div>
-                <div class="toggle-desc">+5s stoppage time added on quick correct solve</div>
-              </div>
-              <label class="switch">
-                <input type="checkbox" id="toggle-speed-bonus" checked>
-                <span class="switch-slider"></span>
-              </label>
-            </div>
-
-            <div class="toggle-row">
-              <div class="toggle-info">
-                <div class="toggle-title">🔔 Stoppage Whistle Ticking</div>
-                <div class="toggle-desc">Heart-racing countdown sound under 10s</div>
-              </div>
-              <label class="switch">
-                <input type="checkbox" id="toggle-urgency-tick" checked>
-                <span class="switch-slider"></span>
-              </label>
-            </div>
-
-            <button class="game-btn btn-primary" id="save-timer-btn" style="margin-top: 8px;">
-              Apply Match Clock
-            </button>
-          </div>
-        </div>
-      </div>
-
-      <!-- ================================================================
-           MODAL: ERA & CATEGORY FILTER
-           ================================================================ -->
-      <div class="game-modal" id="realm-modal">
-        <div class="modal-card">
-          <div class="modal-header">
-            <h2 class="modal-title">🏟️ Select Football Category</h2>
-            <button class="modal-close" data-close="realm-modal">✕</button>
-          </div>
-          <div class="modal-body">
-            <div id="realm-cards-list" style="display: flex; flex-direction: column; gap: 8px;">
-              <!-- Dynamic category items from DB -->
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- ================================================================
-           MODAL: VICTORY CELEBRATION (WORD SOLVED)
-           ================================================================ -->
-      <div class="game-modal" id="victory-modal">
-        <div class="modal-card">
-          <div class="modal-header">
-            <h2 class="modal-title">🏆 GOLAZO! Word Completed!</h2>
-            <button class="modal-close" data-close="victory-modal">✕</button>
-          </div>
-          <div class="modal-body" style="text-align: center;">
-            <img src="assets/victory.jpg" alt="Championship Trophy" class="victory-hero-img">
-
-            <div class="stars-display" id="victory-stars">
-              <span class="star">⭐</span>
-              <span class="star">⭐</span>
-              <span class="star">⭐</span>
-            </div>
-
-            <h3 style="font-family: var(--font-title); color: var(--gold-300); font-size: 20px; letter-spacing: 1px;" id="victory-word-display">
-              MARADONA
-            </h3>
-
-            <div class="score-breakdown-card">
-              <div class="score-line">
-                <span>Goal Points:</span>
-                <span id="v-base-score">+300</span>
-              </div>
-              <div class="score-line">
-                <span>Stoppage Speed Bonus:</span>
-                <span id="v-time-score">+120</span>
-              </div>
-              <div class="score-line">
-                <span>Win Streak Multiplier:</span>
-                <span id="v-streak-score">x2</span>
-              </div>
-              <div class="score-line total">
-                <span>Total Score:</span>
-                <span id="v-total-score">+540</span>
-              </div>
-            </div>
-
-            <div style="font-size: 11px; color: var(--emerald-400); margin: 6px 0;">
-              🔒 Answer recorded for your phone number. Won't repeat for 30 days!
-            </div>
-
-            <div style="display: flex; gap: 8px; margin-top: 6px;">
-              <button class="game-btn btn-secondary" id="victory-profile-btn" style="flex: 1;">
-                📱 Profile
-              </button>
-              <button class="game-btn btn-primary" id="victory-next-btn" style="flex: 2;">
-                Next Word ▶
-              </button>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- ================================================================
-           MODAL: TIME EXPIRED / FULL TIME WHISTLE
-           ================================================================ -->
-      <div class="game-modal" id="timeup-modal">
-        <div class="modal-card">
-          <div class="modal-header">
-            <h2 class="modal-title" style="color: var(--ruby-500);">⏳ Full-Time Whistle!</h2>
-            <button class="modal-close" data-close="timeup-modal">✕</button>
-          </div>
-          <div class="modal-body" style="text-align: center;">
-            <div style="font-size: 48px; margin: 4px 0;">⏱️</div>
-            <p style="font-size: 14px; color: #fecdd3;">
-              The referee blew the whistle before you could complete the football word!
-            </p>
-
-            <div style="background: rgba(15, 20, 36, 0.7); padding: 12px; border-radius: var(--radius-md); text-align: left; font-size: 13px;">
-              <div style="color: var(--gold-300); font-weight: 700; margin-bottom: 4px;">Correct Word Was:</div>
-              <div id="timeup-solution" style="font-weight: 800; color: #fff; font-size: 18px; letter-spacing: 2px;">-</div>
-            </div>
-
-            <div style="display: flex; flex-direction: column; gap: 8px; margin-top: 8px;">
-              <button class="game-btn btn-primary" id="timeup-retry-btn">
-                ↺ Try Again (Extra Time)
-              </button>
-              <button class="game-btn btn-secondary" id="timeup-adjust-timer-btn">
-                ⏱️ Give Me More Match Time (Modify Timer)
-              </button>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- ================================================================
-           MODAL: GAME SETTINGS
-           ================================================================ -->
-      <div class="game-modal" id="settings-modal">
-        <div class="modal-card">
-          <div class="modal-header">
-            <h2 class="modal-title">⚙️ Match Settings</h2>
-            <button class="modal-close" data-close="settings-modal">✕</button>
-          </div>
-          <div class="modal-body">
-            <div class="toggle-row">
-              <div class="toggle-info">
-                <div class="toggle-title">🔊 Stadium Audio</div>
-                <div class="toggle-desc">Referee whistles, crowd cheers & kicks</div>
-              </div>
-              <label class="switch">
-                <input type="checkbox" id="toggle-sound" checked>
-                <span class="switch-slider"></span>
-              </label>
-            </div>
-
-            <div class="toggle-row">
-              <div class="toggle-info">
-                <div class="toggle-title">📳 Haptic Vibrations</div>
-                <div class="toggle-desc">Tactile clicks on mobile devices</div>
-              </div>
-              <label class="switch">
-                <input type="checkbox" id="toggle-haptics" checked>
-                <span class="switch-slider"></span>
-              </label>
-            </div>
-
-            <div class="toggle-row">
-              <div class="toggle-info">
-                <div class="toggle-title">✨ Stadium Sparkles</div>
-                <div class="toggle-desc">Atmospheric floodlight sparks & confetti</div>
-              </div>
-              <label class="switch">
-                <input type="checkbox" id="toggle-particles" checked>
-                <span class="switch-slider"></span>
-              </label>
-            </div>
-
-            <div style="background: rgba(15, 20, 36, 0.6); padding: 10px; border-radius: var(--radius-md); font-size: 12px; color: var(--text-muted);">
-              <div>🗄️ Database Backend: <strong id="db-type-badge" style="color: var(--gold-400);">SQLite</strong></div>
-              <div>📅 Question Cooldown: <strong>30 Days (1 Month)</strong></div>
-            </div>
-
-            <div style="border-top: 1px solid rgba(255, 255, 255, 0.1); padding-top: 12px; text-align: center;">
-              <button class="game-btn btn-secondary" id="switch-phone-btn" style="width: 100%;">
-                📱 Change Phone Number
-              </button>
-            </div>
-          </div>
-        </div>
-      </div>
-
-    </main>
+    </div>
   </div>
 
-  <!-- Scripts -->
+  <!-- Settings -->
+  <div class="screen" id="settings-screen">
+    <div class="screen-inner settings">
+      <div class="settings-head"><h1 class="h2">Settings</h1><button class="icon-btn boxed" id="settings-close" aria-label="Close"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>
+
+      <div class="group"><div class="group-label">Appearance</div>
+        <div class="seg" id="theme-seg">
+          <button type="button" data-theme-choice="dark">Dark</button>
+          <button type="button" data-theme-choice="light">Light</button>
+          <button type="button" data-theme-choice="auto">Auto</button>
+        </div>
+      </div>
+
+      <div class="group"><div class="group-label">Timer per word</div>
+        <div class="seg" id="timer-seg">
+          <button type="button" data-time="0">Off</button>
+          <button type="button" data-time="30">30s</button>
+          <button type="button" data-time="45">45s</button>
+          <button type="button" data-time="60">60s</button>
+        </div>
+        <div class="fine">Off means relaxed play. Streaks still count.</div>
+      </div>
+
+      <div class="group"><div class="group-label">Play history</div>
+        <div class="fine" id="history-totals">Loading…</div>
+        <ul class="history" id="history-list"></ul>
+      </div>
+
+      <div class="list">
+        <div class="list-row"><div><div class="list-title">Sound</div><div class="list-sub">Taps and results</div></div><button class="toggle" id="toggle-sound" role="switch" aria-checked="true" aria-label="Sound"><span></span></button></div>
+        <div class="list-row"><div><div class="list-title">Haptics</div><div class="list-sub">Small buzz on each letter</div></div><button class="toggle" id="toggle-haptics" role="switch" aria-checked="true" aria-label="Haptics"><span></span></button></div>
+      </div>
+
+      <div class="spacer"></div>
+      <div class="player-card"><div><div class="list-sub">Playing as</div><div class="list-title" id="player-label">—</div></div><button class="small-btn" id="switch-phone-btn">Change</button></div>
+    </div>
+  </div>
+
   <script src="audio.js"></script>
-  <script src="particles.js"></script>
   <script src="game.js"></script>
+  <script src="theme.js"></script>
 </body>
 </html>

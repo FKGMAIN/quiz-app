@@ -6,7 +6,9 @@
   "scripts": {
     "start": "node server.js",
     "dev": "node server.js",
-    "seed": "node seed.js"
+    "seed": "node seed.js",
+    "seed:entertainment": "node seed_entertainment.js",
+    "dedupe": "node dedupe_puzzles.js"
   },
   "dependencies": {
     "express": "^4.21.2",

@@ -1,81 +1,56 @@
-// Generator script to populate Pitch Legends with 10,000+ historic football questions
-// Covers All World Cups, European Cups, Champions League, Europa League, AFCON, Copa America,
-// legendary players, coaches, stadiums, iconic derbies, and tactical lore.
+// Builds the masked word for a puzzle. Deterministic per word, so re-seeding never changes a mask.
+// difficulty 1..4 -> more gaps and fewer "easy" gaps at higher levels.
+function hash(str) { let h = 2166136261; for (const c of str) { h ^= c.charCodeAt(0); h = Math.imul(h, 16777619); } return h >>> 0; }
+function rng(seed) { let s = seed || 1; return () => (s = (Math.imul(s, 1664525) + 1013904223) >>> 0) / 4294967296; }
 
-const { getDatabase } = require('./db');
-
-// Helper to mask a word with gaps
-function createMaskedWord(rawWord) {
-  const word = rawWord.trim().toUpperCase();
+function createMaskedWord(rawWord, difficulty = 2) {
+  const word = rawWord.trim().toUpperCase().replace(/\s+/g, ' ');
   const chars = word.split('');
-  const letterIndices = [];
+  const idx = [];
+  chars.forEach((c, i) => { if (c >= 'A' && c <= 'Z') idx.push(i); });
+  const len = idx.length;
+  const rand = rng(hash(word));
 
-  for (let i = 0; i < chars.length; i++) {
-    if (chars[i] >= 'A' && chars[i] <= 'Z') {
-      letterIndices.push(i);
-    }
+  let gaps = len <= 3 ? 1 : len <= 8 ? 2 : len <= 12 ? 3 : 4;
+  gaps += difficulty >= 4 ? 1 : 0;
+  gaps -= difficulty <= 1 ? 1 : 0;
+  gaps = Math.max(1, Math.min(gaps, len - 1, Math.ceil(len / 2)));
+
+  // Spread gaps over the letters: one per slice, random position in the slice.
+  const chosen = new Set();
+  for (let g = 0; g < gaps; g++) {
+    const lo = Math.floor((g * len) / gaps), hi = Math.max(lo + 1, Math.floor(((g + 1) * len) / gaps));
+    let i = lo + Math.floor(rand() * (hi - lo));
+    // Don't hide the very first letter on the easiest level.
+    if (difficulty <= 1 && i === 0) i = Math.min(len - 1, 1);
+    chosen.add(idx[i]);
   }
+  for (let k = 1; chosen.size < gaps && k < len; k++) chosen.add(idx[k]);
 
-  // Determine number of gaps based on word letter count
-  const len = letterIndices.length;
-  let gapCount = 1;
-  if (len >= 4 && len <= 5) gapCount = 2;
-  else if (len >= 6 && len <= 8) gapCount = 2;
-  else if (len >= 9 && len <= 12) gapCount = 3;
-  else if (len > 12) gapCount = 4;
+  const masked = [], missing = [];
+  chars.forEach((c, i) => {
+    if (c === ' ') masked.push(' ');
+    else if (chosen.has(i)) { masked.push('_'); missing.push(c); }
+    else masked.push(c);
+  });
 
-  // Pick gap indices distributed across the word (not all first or last)
-  const chosenGapIndices = new Set();
-  const step = Math.max(1, Math.floor(len / (gapCount + 1)));
+  // Distractors: prefer letters that are not in the word at all.
+  const inWord = new Set(chars), missSet = new Set(missing);
+  const pool = 'ETAOINSRHLDCUMFPGWYBVKXJQZ'.split('');
+  const want = difficulty >= 3 ? 5 : 4;
+  const out = [];
+  const absent = pool.filter(c => !inWord.has(c));
+  while (out.length < want && absent.length) out.push(absent.splice(Math.floor(rand() * Math.min(absent.length, 9)), 1)[0]);
+  const present = pool.filter(c => inWord.has(c) && !missSet.has(c) && !out.includes(c));
+  while (out.length < want && present.length) out.push(present.shift());
 
-  for (let g = 1; g <= gapCount; g++) {
-    const idxInLetterIndices = Math.min(len - 1, g * step + ((g % 2 === 0) ? -1 : 0));
-    chosenGapIndices.add(letterIndices[idxInLetterIndices]);
-  }
-
-  // If set didn't reach gapCount, pick middle letters
-  let attempt = 1;
-  while (chosenGapIndices.size < gapCount && attempt < len - 1) {
-    chosenGapIndices.add(letterIndices[attempt]);
-    attempt += 2;
-  }
-
-  const maskedChars = [];
-  const missingLetters = [];
-
-  for (let i = 0; i < chars.length; i++) {
-    if (chars[i] === ' ') {
-      maskedChars.push(' ');
-    } else if (chosenGapIndices.has(i)) {
-      maskedChars.push('_');
-      missingLetters.push(chars[i]);
-    } else {
-      maskedChars.push(chars[i]);
-    }
-  }
-
-  const maskedPattern = maskedChars.join(' ');
-  const missingStr = missingLetters.join(',');
-
-  // Generate 4-5 distractors not in missing letters
-  const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
-  const missingSet = new Set(missingLetters);
-  const distractors = [];
-
-  // Common vowels and consonants in football names
-  const candidateDistractors = ['A', 'E', 'I', 'O', 'U', 'R', 'S', 'T', 'L', 'N', 'M', 'D', 'C', 'K', 'B'];
-  for (const c of candidateDistractors) {
-    if (!missingSet.has(c) && !distractors.includes(c)) {
-      distractors.push(c);
-      if (distractors.length >= 4) break;
-    }
-  }
-
-  return {
-    masked_pattern: maskedPattern,
-    missing_letters: missingStr,
-    distractors: distractors.join(',')
-  };
+  return { masked_pattern: masked.join(' '), missing_letters: missing.join(','), distractors: out.join(',') };
 }
 
-module.exports = { createMaskedWord };
+// Difficulty 1..4 from a base tier (1 easy, 2 medium, 3 hard) and the word length.
+function difficultyFor(word, tier = 2) {
+  const n = word.replace(/ /g, '').length;
+  return Math.max(1, Math.min(4, tier + (n >= 12 ? 1 : 0) - (n <= 5 ? 1 : 0)));
+}
+
+module.exports = { createMaskedWord, difficultyFor };

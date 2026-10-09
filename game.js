@@ -1,1024 +1,475 @@
-// ==========================================================================
-// Pitch Legends: Historic Football Word Gap Puzzle - Client Game Engine
-// Dual SQLite/Postgres Backend + Phone Session with 30-Day Cooldown
-// ==========================================================================
+// Pitch Legends — masked-word game client.
+// Server: POST /api/session, GET /api/puzzle/next, POST /api/puzzle/answer
+// The server never repeats a word for 30 days after it was last played (served or answered).
 
-class SoccerWordGapGame {
+const RUN_LEN = 4;                 // four correct in a row wins
+const LEVELS = ['Easy', 'Medium', 'Hard', 'Expert'];
+
+class MaskedWordGame {
   constructor() {
     this.sound = window.soundCtrl;
-    this.particles = null;
+    this.$ = id => document.getElementById(id);
 
-    // Player Phone Session
-    this.phoneNumber = localStorage.getItem('soccer_phone_number') || null;
-    this.playerScore = 0;
-    this.playerStreak = 1;
-    this.answeredIn30Days = 0;
-    this.totalPuzzles = 120;
-    this.selectedCategory = null;
+    this.phone = null;
+    this.score = 0;
+    this.streak = 1;
+    this.maxTimer = 45;               // 0 = off
+    this.remaining = 0;
+    this.timer = null;
+    this.startedAt = 0;
 
-    // Modifiable Match Timer
-    this.maxTimer = 45;
-    this.remainingTimer = 45;
-    this.timerInterval = null;
-    this.isZenMode = false;
-    this.speedBonusEnabled = true;
-    this.urgencyTickEnabled = true;
-    this.timerUrgentThreshold = 10;
+    this.puzzle = null;
+    this.gaps = [];                   // { idx, charIdx, expected, value, keyId, revealed }
+    this.keys = [];                   // { id, char, used }
+    this.active = 0;
+    this.locked = true;
+    this.hintsLeft = 1;
+    this.hintUsed = false;
 
-    // Current Puzzle State
-    this.currentPuzzle = null;
-    this.gapSlots = []; // Array of { gapIdx, expectedChar, slottedChar, wordCharIdx }
-    this.activeGapIdx = 0;
-    this.letterBank = []; // Array of { id, char, placed }
-    this.usedHints = { clue: false, eliminate: false };
+    this.run = 0;                     // correct in a row (0..3). Level = run + 1
+    this.wins = 0;
+    this.attempts = 0;
+    this.round = { points: 0 };       // points earned in the current run
+    this.pips = [];                   // result-screen pips
+    this.won = false;
 
-    this.initElements();
-    this.loadPreferences();
-    this.bindEvents();
-    this.initParticles();
-
-    if (!this.phoneNumber) {
-      // Prompt for phone login
-      this.openModal(this.phoneModal);
-    } else {
-      this.initPlayerSession(this.phoneNumber);
-    }
+    this.loadPrefs();
+    this.bind();
+    this.syncSettings();
+    this.renderSegments();
+    this.phone ? this.login(this.phone, true) : this.open('welcome-screen');
   }
 
-  initElements() {
-    // HUD Elements
-    this.hudPhoneText = document.getElementById('hud-phone-text');
-    this.hudMonthProgress = document.getElementById('hud-month-progress');
-    this.phonePillBtn = document.getElementById('phone-pill-btn');
-    this.hudScore = document.getElementById('hud-score');
-    this.hudTimerText = document.getElementById('hud-timer-text');
-    this.hudTimerBtn = document.getElementById('timer-hud-btn');
-    this.timerCircle = document.getElementById('timer-circle');
-    this.hudStreak = document.getElementById('hud-streak');
-    this.hudStreakWrap = document.getElementById('hud-streak-wrap');
+  // ---------- small helpers ----------
+  open(id) { this.$(id).classList.add('open'); }
+  close(id) { this.$(id).classList.remove('open'); }
+  shuffle(a) { a = [...a]; for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; }
+  snd(name, ...args) { try { this.sound[name](...args); } catch (e) {} }
+  buzz(p) { try { this.sound.vibrate(p); } catch (e) {} }
+  store(k, v) { try { localStorage.setItem(k, v); } catch (e) {} }
+  maskPhone(p) { return p && p.length > 8 ? `${p.slice(0, 4)} ••• ${p.slice(-4)}` : (p || '—'); }
 
-    // Mascot
-    this.mascotSpeech = document.getElementById('mascot-speech');
-
-    // Puzzle Board
-    this.scenarioYear = document.getElementById('scenario-year');
-    this.puzzleCategory = document.getElementById('puzzle-category');
-    this.matchTeamsBar = document.getElementById('match-teams-bar');
-    this.historicClueBox = document.getElementById('historic-clue-box');
-    this.wordGapsWrapper = document.getElementById('word-gaps-wrapper');
-    this.puzzleBoard = document.getElementById('puzzle-board');
-    this.cooldownStatusBar = document.getElementById('cooldown-status-bar');
-
-    // Letter Bank & Action Buttons
-    this.letterBankGrid = document.getElementById('letter-bank-grid');
-    this.checkAnswerBtn = document.getElementById('check-answer-btn');
-    this.clearSlotsBtn = document.getElementById('clear-slots-btn');
-    this.shuffleWordsBtn = document.getElementById('shuffle-words-btn');
-
-    // Hints
-    this.hintClueBtn = document.getElementById('hint-clue-btn');
-    this.hintClueText = document.getElementById('hint-clue-text');
-    this.hintEliminateBtn = document.getElementById('hint-eliminate-btn');
-    this.skipPuzzleBtn = document.getElementById('skip-puzzle-btn');
-
-    // Modals
-    this.phoneModal = document.getElementById('phone-modal');
-    this.phoneInput = document.getElementById('phone-input');
-    this.savePhoneBtn = document.getElementById('save-phone-btn');
-    this.phoneStatsCard = document.getElementById('phone-stats-card');
-
-    this.timerModal = document.getElementById('timer-modal');
-    this.realmModal = document.getElementById('realm-modal');
-    this.victoryModal = document.getElementById('victory-modal');
-    this.timeupModal = document.getElementById('timeup-modal');
-    this.settingsModal = document.getElementById('settings-modal');
-
-    // Timer modal controls
-    this.customTimerSlider = document.getElementById('custom-timer-slider');
-    this.sliderTimerVal = document.getElementById('slider-timer-val');
-    this.toggleSpeedBonus = document.getElementById('toggle-speed-bonus');
-    this.toggleUrgencyTick = document.getElementById('toggle-urgency-tick');
-    this.saveTimerBtn = document.getElementById('save-timer-btn');
-  }
-
-  loadPreferences() {
+  loadPrefs() {
     try {
-      const savedTimer = localStorage.getItem('soccer_timer_sec');
-      if (savedTimer !== null) {
-        const val = parseInt(savedTimer, 10);
-        this.maxTimer = val;
-        this.isZenMode = (val === 0);
-      }
-      const savedSpeedBonus = localStorage.getItem('soccer_speed_bonus');
-      if (savedSpeedBonus !== null) {
-        this.speedBonusEnabled = savedSpeedBonus === 'true';
-      }
-      this.toggleSpeedBonus.checked = this.speedBonusEnabled;
-    } catch (e) {}
-    this.updateTimerModalInputs();
-  }
-
-  savePreferences() {
-    try {
-      localStorage.setItem('soccer_timer_sec', this.maxTimer);
-      localStorage.setItem('soccer_speed_bonus', this.speedBonusEnabled);
+      this.phone = localStorage.getItem('soccer_phone_number');
+      const t = parseInt(localStorage.getItem('soccer_timer_sec'), 10);
+      if (!isNaN(t)) this.maxTimer = t;
+      if (localStorage.getItem('soccer_sound') === 'off') this.sound.soundEnabled = false;
+      if (localStorage.getItem('soccer_haptics') === 'off') this.sound.hapticsEnabled = false;
     } catch (e) {}
   }
 
-  initParticles() {
+  bind() {
+    this.$('primary-btn').onclick = () => this.check();
+    this.$('skip-btn').onclick = () => this.skip();
+    this.$('undo-btn').onclick = () => this.undo();
+    this.$('reveal-btn').onclick = () => this.reveal();
+    this.$('next-btn').onclick = () => this.nextFromResult();
+    this.$('share-btn').onclick = () => this.share();
+    this.$('settings-btn').onclick = () => { this.snd('playTap'); this.syncSettings(); this.open('settings-screen'); this.loadHistory(); };
+    this.$('settings-close').onclick = () => this.close('settings-screen');
+    this.$('login-btn').onclick = () => this.login(this.$('phone-input').value);
+    this.$('login-cancel').onclick = () => this.close('welcome-screen');
+    this.$('phone-input').addEventListener('keydown', e => { if (e.key === 'Enter') this.login(e.target.value); });
+    this.$('switch-phone-btn').onclick = () => {
+      this.close('settings-screen');
+      this.$('phone-input').value = '';
+      this.$('login-error').textContent = '';
+      this.$('login-cancel').hidden = false;
+      this.open('welcome-screen');
+    };
+    this.$('toggle-sound').onclick = () => { const on = this.sound.toggleSound(); this.store('soccer_sound', on ? 'on' : 'off'); this.syncSettings(); };
+    this.$('toggle-haptics').onclick = () => { const on = this.sound.toggleHaptics(); this.store('soccer_haptics', on ? 'on' : 'off'); this.syncSettings(); if (on) this.buzz(30); };
+    document.querySelectorAll('#timer-seg button').forEach(b => b.onclick = () => this.setTimer(parseInt(b.dataset.time, 10)));
+    document.addEventListener('keydown', e => this.onKey(e));
+    window.addEventListener('resize', () => this.puzzle && this.renderWord());
+  }
+
+  onKey(e) {
+    if (document.querySelector('.screen.open') || !this.puzzle || this.locked) return;
+    if (e.key === 'Backspace') return this.undo();
+    if (e.key === 'Enter') return this.check();
+    const ch = e.key.length === 1 ? e.key.toUpperCase() : '';
+    const k = this.keys.find(k => k.char === ch && !k.used);
+    if (k) this.place(k.id);
+  }
+
+  // ---------- session ----------
+  async login(raw, silent) {
+    const err = this.$('login-error'); err.textContent = '';
+    if (!raw || !raw.trim()) { err.textContent = 'Enter your phone number.'; return; }
     try {
-      this.particles = new ParticleEngine('fx-canvas');
-    } catch (e) {}
-  }
-
-  // ==========================================================================
-  // PHONE SESSION & 30-DAY COOLDOWN LOGIC
-  // ==========================================================================
-  async initPlayerSession(phoneNumber) {
-    try {
-      const res = await fetch('/api/session', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ phone_number: phoneNumber })
-      });
-
-      const data = await res.json();
-      if (!res.ok) {
-        alert(data.error || 'Failed to authenticate phone session.');
-        this.openModal(this.phoneModal);
-        return;
-      }
-
-      this.phoneNumber = data.phone_number;
-      localStorage.setItem('soccer_phone_number', this.phoneNumber);
-      this.playerScore = data.score;
-      this.playerStreak = data.streak;
-      this.answeredIn30Days = data.answered_in_30_days;
-      this.totalPuzzles = data.total_puzzles;
-
-      // Update HUD
-      const displayPhone = this.phoneNumber.length > 10 
-        ? `${this.phoneNumber.slice(0, 4)}...${this.phoneNumber.slice(-4)}`
-        : this.phoneNumber;
-      this.hudPhoneText.textContent = displayPhone;
-      this.hudMonthProgress.textContent = `${this.answeredIn30Days}/${this.totalPuzzles}`;
-      this.hudScore.textContent = this.playerScore;
-      this.hudStreak.textContent = `x${this.playerStreak}`;
-
-      const dbBadge = document.getElementById('db-type-badge');
-      if (dbBadge) dbBadge.textContent = data.db_type ? data.db_type.toUpperCase() : 'SQLITE';
-
-      // Update phone stats card in modal
-      document.getElementById('p-score').textContent = this.playerScore;
-      document.getElementById('p-streak').textContent = `x${this.playerStreak}`;
-      document.getElementById('p-answered').textContent = this.answeredIn30Days;
-      document.getElementById('p-remaining').textContent = data.remaining_available;
-      this.phoneStatsCard.style.display = 'flex';
-
-      this.closeModal(this.phoneModal);
-      this.mascotSpeech.textContent = `Player verified! Questions answered by ${this.phoneNumber} will not repeat for 30 days.`;
-
-      // Load next puzzle
-      this.fetchNextPuzzle();
-    } catch (err) {
-      console.error('Session init error:', err);
-      this.mascotSpeech.textContent = 'Connection error. Playing in offline practice mode.';
-    }
-  }
-
-  // ==========================================================================
-  // FETCH PUZZLE (WORDS ONLY, EXCLUDING 30-DAY ANSWERED)
-  // ==========================================================================
-  async fetchNextPuzzle() {
-    this.stopTimer();
-
-    if (!this.phoneNumber) {
-      this.openModal(this.phoneModal);
-      return;
-    }
-
-    try {
-      let url = `/api/puzzle/next?phone_number=${encodeURIComponent(this.phoneNumber)}`;
-      if (this.selectedCategory) {
-        url += `&category=${encodeURIComponent(this.selectedCategory)}`;
-      }
-
-      const res = await fetch(url);
-      const data = await res.json();
-
-      if (!res.ok) {
-        this.mascotSpeech.textContent = data.message || 'All historic questions completed for this 30-day window!';
-        this.cooldownStatusBar.innerHTML = '🏆 <strong>All questions solved this month! Cycle resets automatically.</strong>';
-        return;
-      }
-
-      this.currentPuzzle = data;
-      this.setupWordGapPuzzle(data);
-    } catch (err) {
-      console.error('Failed to fetch puzzle:', err);
-    }
-  }
-
-  setupWordGapPuzzle(puzzle) {
-    this.scenarioYear.textContent = puzzle.year || 'HISTORIC';
-    this.puzzleCategory.textContent = puzzle.category;
-    this.matchTeamsBar.textContent = `⚽ ${puzzle.team || puzzle.category}`;
-    this.historicClueBox.textContent = puzzle.clue;
-
-    if (puzzle.recycled_after_30_days) {
-      this.cooldownStatusBar.innerHTML = '<span>♻️ 30-day window elapsed: Questions recycled for extra training!</span>';
-    } else {
-      this.cooldownStatusBar.innerHTML = '<span>🛡️ 30-Day Fresh Question Guarantee (No repeats)</span>';
-    }
-
-    // Reset hints
-    this.usedHints = { clue: false, eliminate: false };
-    this.hintClueBtn.classList.remove('used');
-    this.hintEliminateBtn.classList.remove('used');
-    this.hintClueText.textContent = 'Letter Clue';
-
-    // Parse Word & Mask Pattern into Gaps
-    const word = puzzle.word.toUpperCase();
-    const pattern = puzzle.masked_pattern.toUpperCase();
-    this.gapSlots = [];
-
-    // Parse pattern to identify gap positions
-    let patternIdx = 0;
-    let gapCounter = 0;
-
-    for (let i = 0; i < word.length; i++) {
-      const char = word[i];
-      if (char === ' ') {
-        patternIdx++; // Skip space in pattern
-        continue;
-      }
-
-      const patternChar = pattern[patternIdx] || '_';
-      if (patternChar === '_') {
-        this.gapSlots.push({
-          gapIdx: gapCounter++,
-          wordCharIdx: i,
-          expectedChar: char,
-          slottedChar: null
-        });
-      }
-      patternIdx += 2; // Advance past character and space in pattern string
-    }
-
-    this.activeGapIdx = 0;
-
-    // Create Letter Bank (missing letters + distractors, shuffled)
-    const allLetters = [...puzzle.missing_letters, ...puzzle.distractors];
-    this.letterBank = this.shuffleArray(allLetters).map((letter, idx) => ({
-      id: `l-${idx}-${letter}`,
-      char: letter.toUpperCase(),
-      placed: false
-    }));
-
-    this.renderWordGaps();
-    this.renderLetterBank();
-
-    this.mascotSpeech.textContent = `Complete the missing letters to name the legend: ${puzzle.clue.slice(0, 55)}...`;
-    this.startTimer();
-  }
-
-  // ==========================================================================
-  // WORD GAP RENDERING (WORDS ONLY, LETTER GAPS)
-  // ==========================================================================
-  renderWordGaps() {
-    this.wordGapsWrapper.innerHTML = '';
-    const word = this.currentPuzzle.word.toUpperCase();
-
-    // Group into word segments for multi-word phrases (e.g. CAMP NOU, JULES RIMET)
-    const segments = word.split(' ');
-
-    let charOffset = 0;
-    segments.forEach((seg, sIdx) => {
-      const segEl = document.createElement('div');
-      segEl.className = 'word-segment';
-
-      for (let i = 0; i < seg.length; i++) {
-        const fullWordCharIdx = charOffset + i;
-        const char = seg[i];
-
-        const gap = this.gapSlots.find(g => g.wordCharIdx === fullWordCharIdx);
-
-        const box = document.createElement('div');
-        box.className = 'letter-box';
-
-        if (!gap) {
-          // Fixed given letter
-          box.classList.add('fixed');
-          box.textContent = char;
-        } else {
-          // Missing letter gap slot
-          box.id = `gap-${gap.gapIdx}`;
-          if (gap.slottedChar) {
-            box.classList.add('filled-gap');
-            box.textContent = gap.slottedChar;
-            box.addEventListener('click', () => {
-              this.unslotGap(gap.gapIdx);
-            });
-          } else {
-            box.classList.add('empty-gap');
-            box.textContent = '_';
-            if (gap.gapIdx === this.activeGapIdx) {
-              box.classList.add('active');
-            }
-            box.addEventListener('click', () => {
-              this.setActiveGap(gap.gapIdx);
-            });
-          }
-        }
-        segEl.appendChild(box);
-      }
-
-      this.wordGapsWrapper.appendChild(segEl);
-
-      // Space between segments
-      if (sIdx < segments.length - 1) {
-        const spacer = document.createElement('div');
-        spacer.className = 'word-space-separator';
-        this.wordGapsWrapper.appendChild(spacer);
-      }
-
-      charOffset += seg.length + 1; // +1 for the space
-    });
-
-    this.updateCheckButtonState();
-  }
-
-  renderLetterBank() {
-    this.letterBankGrid.innerHTML = '';
-    this.letterBank.forEach((item) => {
-      const chip = document.createElement('button');
-      chip.className = 'runic-word-chip';
-      if (item.placed) chip.classList.add('placed');
-      chip.id = item.id;
-      chip.innerHTML = `<span>${item.char}</span>`;
-
-      chip.addEventListener('click', () => {
-        if (!item.placed) {
-          this.slotLetter(item.char, item.id);
-        }
-      });
-
-      this.letterBankGrid.appendChild(chip);
-    });
-  }
-
-  setActiveGap(idx) {
-    this.activeGapIdx = idx;
-    document.querySelectorAll('.letter-box.empty-gap').forEach(b => {
-      b.classList.remove('active');
-    });
-    const target = document.getElementById(`gap-${idx}`);
-    if (target) target.classList.add('active');
-    this.sound.playTap();
-  }
-
-  slotLetter(char, letterBankId) {
-    let targetGapIdx = this.activeGapIdx;
-    let targetGap = this.gapSlots[targetGapIdx];
-
-    if (!targetGap || targetGap.slottedChar !== null) {
-      targetGap = this.gapSlots.find(g => g.slottedChar === null);
-    }
-    if (!targetGap) {
-      targetGap = this.gapSlots[this.activeGapIdx];
-      // Return previous letter to bank
-      const oldLetter = targetGap.slottedChar;
-      const oldItem = this.letterBank.find(l => l.char === oldLetter && l.placed);
-      if (oldItem) oldItem.placed = false;
-    }
-
-    targetGap.slottedChar = char;
-    const bankItem = this.letterBank.find(l => l.id === letterBankId);
-    if (bankItem) bankItem.placed = true;
-
-    // Advance to next empty gap
-    const nextEmpty = this.gapSlots.find(g => g.slottedChar === null);
-    this.activeGapIdx = nextEmpty ? nextEmpty.gapIdx : targetGap.gapIdx;
-
-    this.sound.playSlot();
-    this.renderWordGaps();
-    this.renderLetterBank();
-
-    // Auto check if all gaps filled
-    if (this.gapSlots.every(g => g.slottedChar !== null)) {
-      setTimeout(() => this.verifyAnswer(), 200);
-    }
-  }
-
-  unslotGap(gapIdx) {
-    const gap = this.gapSlots.find(g => g.gapIdx === gapIdx);
-    if (!gap || !gap.slottedChar) return;
-
-    const char = gap.slottedChar;
-    gap.slottedChar = null;
-    this.activeGapIdx = gapIdx;
-
-    const bankItem = this.letterBank.find(l => l.char === char && l.placed);
-    if (bankItem) bankItem.placed = false;
-
-    this.sound.playUnslot();
-    this.renderWordGaps();
-    this.renderLetterBank();
-  }
-
-  unslotActiveOrLast() {
-    let target = this.gapSlots.find(g => g.gapIdx === this.activeGapIdx && g.slottedChar !== null);
-    if (!target) {
-      for (let i = this.gapSlots.length - 1; i >= 0; i--) {
-        if (this.gapSlots[i].slottedChar !== null) {
-          target = this.gapSlots[i];
-          break;
-        }
-      }
-    }
-    if (target) {
-      this.unslotGap(target.gapIdx);
-    }
-  }
-
-  clearAllSlots() {
-    this.gapSlots.forEach(g => g.slottedChar = null);
-    this.letterBank.forEach(l => l.placed = false);
-    this.activeGapIdx = 0;
-    this.renderWordGaps();
-    this.renderLetterBank();
-  }
-
-  shuffleAvailableWords() {
-    this.letterBank = this.shuffleArray(this.letterBank);
-    this.renderLetterBank();
-  }
-
-  updateCheckButtonState() {
-    const hasAnyFilled = this.gapSlots.some(g => g.slottedChar !== null);
-    this.checkAnswerBtn.disabled = !hasAnyFilled;
-  }
-
-  // ==========================================================================
-  // ANSWER SUBMISSION & 30-DAY BACKEND LOGGING
-  // ==========================================================================
-  async verifyAnswer() {
-    const isComplete = this.gapSlots.every(g => g.slottedChar !== null);
-    if (!isComplete) {
-      this.mascotSpeech.textContent = 'Referee whistle! Complete all missing letters in the word!';
-      this.sound.playWrong();
-      this.puzzleBoard.classList.add('shake');
-      setTimeout(() => this.puzzleBoard.classList.remove('shake'), 400);
-      return;
-    }
-
-    const isCorrect = this.gapSlots.every(g => g.slottedChar === g.expectedChar);
-
-    if (isCorrect) {
-      await this.handleCorrectAnswer();
-    } else {
-      this.handleWrongAnswer();
-    }
-  }
-
-  async handleCorrectAnswer() {
-    this.stopTimer();
-
-    document.querySelectorAll('.letter-box').forEach(b => {
-      b.classList.add('correct-pulse');
-    });
-
-    this.sound.playCorrect(this.playerStreak);
-    this.playerStreak++;
-    this.hudStreak.textContent = `x${this.playerStreak}`;
-
-    // Celebration Canvas Effects
-    if (this.particles) {
-      const rect = this.wordGapsWrapper.getBoundingClientRect();
-      const phoneRect = document.getElementById('phone-frame').getBoundingClientRect();
-      const x = rect.left - phoneRect.left + rect.width / 2;
-      const y = rect.top - phoneRect.top + rect.height / 2;
-      this.particles.burstStars(x, y, 45);
-      this.particles.launchConfetti();
-    }
-
-    const timeSpent = this.maxTimer - this.remainingTimer;
-
-    // Send answer to server to log timestamp in user_answers & update score
-    try {
-      const res = await fetch('/api/puzzle/answer', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          phone_number: this.phoneNumber,
-          puzzle_id: this.currentPuzzle.id,
-          is_correct: true,
-          time_spent: timeSpent
-        })
-      });
-      const data = await res.json();
-      if (data.success) {
-        this.playerScore = data.new_score;
-        this.hudScore.textContent = this.playerScore;
-        this.answeredIn30Days++;
-        this.hudMonthProgress.textContent = `${this.answeredIn30Days}/${this.totalPuzzles}`;
-      }
+      const res = await fetch('/api/session', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ phone_number: raw }) });
+      const d = await res.json();
+      if (!res.ok) { err.textContent = d.error || 'Could not sign in.'; this.open('welcome-screen'); return; }
+      const changed = this.phone !== d.phone_number;
+      this.phone = d.phone_number; this.score = d.score; this.streak = d.streak;
+      this.store('soccer_phone_number', this.phone);
+      this.wins = d.wins || 0;
+      this.run = Math.max(0, Math.min(RUN_LEN - 1, (d.streak || 1) - 1));
+      if (changed) { this.round = { points: 0 }; this.clearPending(); }
+      this.round.points = d.session_points || 0;           // the server owns the session; it resets after 24h
+      if (d.session_expired) { this.clearPending(); this.notice = 'Your last session expired after 24 hours, so we started a fresh one.'; }
+      this.renderHud(); this.renderSegments(); this.syncSettings();
+      this.close('welcome-screen');
+      this.$('login-cancel').hidden = true;
+      this.next();
     } catch (e) {
-      console.warn('Backend answer sync error:', e);
+      err.textContent = 'Connection error. Check the server and try again.';
+      this.open('welcome-screen');
     }
-
-    if (this.speedBonusEnabled && !this.isZenMode) {
-      this.addTimeBonus(5);
-    }
-
-    // Victory modal details
-    document.getElementById('victory-word-display').textContent = this.currentPuzzle.word;
-    document.getElementById('v-base-score').textContent = '+250';
-    document.getElementById('v-time-score').textContent = `+${Math.max(0, this.remainingTimer * 6)}`;
-    document.getElementById('v-streak-score').textContent = `x${this.playerStreak}`;
-    document.getElementById('v-total-score').textContent = `+${250 + Math.max(0, this.remainingTimer * 6)}`;
-
-    const comments = [
-      'GOLAZO! Clean strike! The word is completed!',
-      'TASTEFUL FINISH! Top drawer football knowledge!',
-      'BALLON D\'OR FORM! Your memory of the pitch is legendary!',
-      'MAGNIFICENT! You cracked the word with clinical speed!'
-    ];
-    this.mascotSpeech.textContent = comments[Math.floor(Math.random() * comments.length)];
-
-    setTimeout(() => {
-      this.sound.playFanfare();
-      this.openModal(this.victoryModal);
-    }, 650);
   }
 
-  handleWrongAnswer() {
-    this.sound.playWrong();
-    this.playerStreak = 1;
-    this.hudStreak.textContent = 'x1';
-
-    this.puzzleBoard.classList.add('shake');
-    setTimeout(() => this.puzzleBoard.classList.remove('shake'), 400);
-
-    this.mascotSpeech.textContent = 'Foul! The letters do not spell the correct historic word. Re-check your gaps!';
+  // The round (progress segments and points) survives a refresh within the same tab.
+  saveRound() { try { sessionStorage.setItem('pl_round', JSON.stringify({ phone: this.phone, round: this.round })); } catch (e) {} }
+  restoreRound() {
+    try { const r = JSON.parse(sessionStorage.getItem('pl_round') || 'null'); if (r && r.phone === this.phone && r.round && typeof r.round.points === 'number') this.round = r.round; } catch (e) {}
   }
 
-  // ==========================================================================
-  // MODIFIABLE MATCH TIMER
-  // ==========================================================================
-  updateTimerModalInputs() {
-    this.customTimerSlider.value = this.isZenMode ? 0 : this.maxTimer;
-    this.sliderTimerVal.textContent = this.isZenMode ? 'Training Ground (Untimed)' : `${this.maxTimer} seconds`;
-    document.querySelectorAll('.timer-preset-btn').forEach(btn => {
-      const timeVal = parseInt(btn.getAttribute('data-time'), 10);
-      btn.classList.toggle('active', (this.isZenMode && timeVal === 0) || (!this.isZenMode && timeVal === this.maxTimer));
+  // The word currently on screen is remembered for this browser tab, so a refresh doesn't burn it.
+  savePending() { try { sessionStorage.setItem('pl_current', JSON.stringify({ phone: this.phone, puzzle: this.puzzle })); } catch (e) {} }
+  clearPending() { try { sessionStorage.removeItem('pl_current'); } catch (e) {} }
+  readPending() {
+    try { const p = JSON.parse(sessionStorage.getItem('pl_current') || 'null'); return p && p.phone === this.phone ? p.puzzle : null; } catch (e) { return null; }
+  }
+
+  async next() {
+    this.stopTimer(); this.locked = true;
+    const pending = this.readPending();
+    if (pending) return this.load(pending);
+    try {
+      const res = await fetch(`/api/puzzle/next?phone_number=${encodeURIComponent(this.phone)}&difficulty=${this.run + 1}`);
+      const d = await res.json();
+      if (!res.ok) return this.showEmpty(d.message);
+      this.load(d);
+    } catch (e) {
+      this.showEmpty('Could not reach the server. Check your connection and refresh.', true);
+    }
+  }
+
+  showEmpty(msg, isError) {
+    this.puzzle = null;
+    this.$('word').innerHTML = '';
+    const n = document.createElement('div'); n.className = 'empty-note';
+    const t = document.createElement('strong'); t.textContent = isError ? 'Offline' : 'All caught up';
+    n.appendChild(t); n.appendChild(document.createTextNode(msg || 'No more words right now.'));
+    this.$('word').appendChild(n);
+    this.$('tray').innerHTML = '';
+    this.setStatus('');
+    ['primary-btn', 'skip-btn', 'reveal-btn', 'undo-btn'].forEach(id => this.$(id).disabled = true);
+    this.$('timer-chip').classList.remove('low'); this.$('hud-timer').textContent = '—';
+  }
+
+  // ---------- puzzle ----------
+  load(p) {
+    this.puzzle = p; this.savePending();
+    const word = p.word.toUpperCase();
+    // The pattern is the word's characters joined by spaces. Strip whitespace so it lines up 1:1 with
+    // the word's non-space characters (this keeps multi-word names aligned).
+    const mask = p.masked_pattern.toUpperCase().replace(/\s+/g, '');
+    this.gaps = []; let mi = 0, g = 0;
+    for (let i = 0; i < word.length; i++) {
+      if (word[i] === ' ') continue;
+      if (mask[mi++] === '_') this.gaps.push({ idx: g++, charIdx: i, expected: word[i], value: null, keyId: null, revealed: false });
+    }
+    this.active = 0; this.attempts = 0; this.hintsLeft = 1; this.hintUsed = false; this.locked = false;
+    this.keys = this.shuffle([...p.missing_letters, ...p.distractors]).map((c, i) => ({ id: i, char: c.toUpperCase(), used: false }));
+    this.$('skip-btn').disabled = false;
+    this.setStatus(''); this.$('word').className = 'word';
+    this.renderAll(); this.startTimer();
+    if (this.notice) { this.setStatus(this.notice); this.notice = ''; }
+  }
+
+  renderAll() { this.renderHud(); this.renderSegments(); this.renderWord(); this.renderTray(); this.renderControls(); }
+
+  renderHud() {
+    this.$('hud-score').textContent = `${this.score.toLocaleString()} pts`;
+    this.$('hud-streak').textContent = `Streak x${this.streak}`;
+    this.$('round-label').textContent = `Streak ${this.run} of ${RUN_LEN} · ${LEVELS[Math.min(this.run, 3)]}`;
+  }
+
+  renderSegments() {
+    const build = (el, list) => {
+      el.innerHTML = '';
+      for (let i = 0; i < RUN_LEN; i++) {
+        const b = document.createElement('div'); b.className = 'seg-bar';
+        if (list[i]) b.classList.add(list[i]);
+        el.appendChild(b);
+      }
+    };
+    const live = []; for (let i = 0; i < RUN_LEN; i++) live.push(i < this.run ? 'ok' : i === this.run ? 'now' : '');
+    build(this.$('segments'), live);
+    build(this.$('r-segments'), this.pips);
+  }
+
+  renderWord() {
+    if (!this.puzzle) return;
+    const wrap = this.$('word'); wrap.innerHTML = '';
+    const segs = this.puzzle.word.toUpperCase().split(' ');
+    const longest = Math.max(...segs.map(s => s.length));
+    const avail = Math.min(window.innerWidth, 480) - 40;
+    const tile = Math.max(26, Math.min(42, Math.floor((avail - (longest - 1) * 6) / longest)));
+    wrap.style.setProperty('--tile', tile + 'px');
+
+    const nextEmpty = this.gaps.find(g => !g.value);
+    let off = 0;
+    segs.forEach(seg => {
+      const row = document.createElement('div'); row.className = 'segment';
+      for (let i = 0; i < seg.length; i++) {
+        const gap = this.gaps.find(x => x.charIdx === off + i);
+        let t;
+        if (!gap) { t = document.createElement('div'); t.className = 'tile'; t.textContent = seg[i]; }
+        else if (gap.revealed) { t = document.createElement('div'); t.className = 'tile revealed'; t.textContent = gap.value; t.setAttribute('aria-label', `Revealed letter ${gap.value}`); }
+        else {
+          t = document.createElement('button'); t.type = 'button';
+          if (gap.value) { t.className = 'tile filled'; t.textContent = gap.value; t.setAttribute('aria-label', `Letter ${gap.value}, tap to remove`); t.onclick = () => this.clearGap(gap.idx); }
+          else { t.className = 'tile gap' + (nextEmpty && nextEmpty.idx === gap.idx ? ' next' : ''); t.innerHTML = '&nbsp;'; t.setAttribute('aria-label', `Empty gap ${gap.idx + 1}`); t.onclick = () => { this.active = gap.idx; this.renderWord(); }; }
+        }
+        row.appendChild(t);
+      }
+      wrap.appendChild(row);
+      off += seg.length + 1;
     });
   }
 
-  applyModifiedTimerSettings() {
-    const selectedPreset = document.querySelector('.timer-preset-btn.active');
-    let timeVal = this.maxTimer;
+  renderTray() {
+    const tray = this.$('tray'); tray.innerHTML = '';
+    this.keys.forEach(k => {
+      const b = document.createElement('button'); b.type = 'button'; b.className = 'key'; b.textContent = k.char; b.disabled = k.used || this.locked;
+      b.onclick = () => this.place(k.id); tray.appendChild(b);
+    });
+  }
 
-    if (selectedPreset) {
-      timeVal = parseInt(selectedPreset.getAttribute('data-time'), 10);
-    } else {
-      timeVal = parseInt(this.customTimerSlider.value, 10);
+  renderControls() {
+    const filled = this.gaps.length && this.gaps.every(g => g.value);
+    this.$('primary-btn').disabled = this.locked || !filled;
+    this.$('reveal-btn').disabled = this.locked || this.hintsLeft < 1 || !this.gaps.some(g => !g.value);
+    this.$('reveal-left').textContent = `· ${this.hintsLeft} left`;
+    this.$('undo-btn').disabled = this.locked || !this.gaps.some(g => g.value && !g.revealed);
+    if (!this.locked && !this.$('status').classList.contains('bad')) {
+      const left = this.gaps.filter(g => !g.value).length;
+      this.setStatus(filled ? 'Ready to check' : `${left} ${left === 1 ? 'letter' : 'letters'} to go`);
     }
+  }
 
-    this.isZenMode = (timeVal === 0);
-    this.maxTimer = timeVal === 0 ? 0 : timeVal;
-    this.speedBonusEnabled = this.toggleSpeedBonus.checked;
-    this.urgencyTickEnabled = this.toggleUrgencyTick.checked;
+  setStatus(t, kind) { const s = this.$('status'); s.textContent = t || ' '; s.className = 'status' + (kind ? ' ' + kind : ''); }
 
-    this.savePreferences();
+  // ---------- input ----------
+  place(keyId) {
+    if (this.locked) return;
+    const key = this.keys.find(k => k.id === keyId); if (!key || key.used) return;
+    let gap = this.gaps[this.active];
+    if (!gap || gap.value) gap = this.gaps.find(g => !g.value);
+    if (!gap) return;
+    gap.value = key.char; gap.keyId = key.id; key.used = true;
+    const nxt = this.gaps.find(g => !g.value); this.active = nxt ? nxt.idx : gap.idx;
+    this.snd('playSlot'); this.buzz(10);
+    this.$('word').classList.remove('wrong'); this.setStatus('');
+    this.renderWord(); this.renderTray(); this.renderControls();
+  }
 
-    this.remainingTimer = this.maxTimer;
-    this.updateTimerDisplay();
+  clearGap(idx) {
+    if (this.locked) return;
+    const gap = this.gaps.find(g => g.idx === idx); if (!gap || !gap.value || gap.revealed) return;
+    const key = this.keys.find(k => k.id === gap.keyId); if (key) key.used = false;
+    gap.value = null; gap.keyId = null; this.active = gap.idx;
+    this.snd('playUnslot'); this.setStatus('');
+    this.renderWord(); this.renderTray(); this.renderControls();
+  }
 
-    this.mascotSpeech.textContent = this.isZenMode 
-      ? 'Training Ground active! Relax, solve words at your own pace.'
-      : `Match Clock modified to ${this.maxTimer} seconds! Keep sharp!`;
+  undo() {
+    const last = [...this.gaps].reverse().find(g => g.value && !g.revealed);
+    if (last) this.clearGap(last.idx);
+  }
+
+  reveal() {
+    if (this.locked || this.hintsLeft < 1) return;
+    const gap = this.gaps.find(g => !g.value); if (!gap) return;
+    const key = this.keys.find(k => k.char === gap.expected && !k.used);
+    gap.value = gap.expected; gap.revealed = true; gap.keyId = key ? key.id : null; if (key) key.used = true;
+    this.hintsLeft--; this.hintUsed = true;
+    this.snd('playSlot'); this.buzz(15);
+    this.setStatus('');
+    this.renderWord(); this.renderTray(); this.renderControls();
+  }
+
+  // ---------- answers ----------
+  check() {
+    if (this.locked || !this.gaps.every(g => g.value)) return;
+    const w = this.$('word');
+    if (this.gaps.every(g => g.value === g.expected)) {
+      this.locked = true; this.stopTimer();
+      w.classList.remove('wrong'); w.classList.add('correct');
+      this.setStatus('Nice one!', 'good');
+      this.snd('playCorrect', this.streak); this.buzz([20, 40, 20]);
+      this.renderTray(); this.renderControls();
+      this.record(true).then(d => setTimeout(() => this.showResult(true, d), 650));
+    } else {
+      this.attempts++;
+      this.snd('playWrong'); this.buzz(80);
+      w.classList.remove('wrong'); void w.offsetWidth; w.classList.add('wrong');
+      if (this.attempts >= 2) {
+        this.locked = true; this.stopTimer(); this.renderTray(); this.renderControls();
+        this.setStatus('Out of tries', 'bad');
+        this.record(false).then(d => setTimeout(() => this.showResult(false, d, 'Out of tries'), 650));
+        return;
+      }
+      this.setStatus('Not quite. One try left. Tap a letter to swap it.', 'bad');
+      this.renderControls();
+    }
+  }
+
+  async record(correct, reason) {
+    const spent = Math.max(0, Math.round((Date.now() - this.startedAt) / 1000));
+    this.lastSpent = spent;
+    try {
+      const res = await fetch('/api/puzzle/answer', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ phone_number: this.phone, puzzle_id: this.puzzle.id, is_correct: correct, reason: reason || (correct ? '' : 'wrong'), time_spent: spent, hints_used: this.hintUsed ? 1 : 0 }) });
+      const d = await res.json();
+      if (d.success) { this.score = d.new_score; this.streak = d.new_streak; this.wins = d.wins || this.wins; return d; }
+    } catch (e) {}
+    return null;
+  }
+
+  async skip() {
+    if (this.locked || !this.puzzle) return;
+    this.locked = true; this.stopTimer(); this.renderControls(); this.renderTray();
+    const d = await this.record(false, 'skipped');          // logged so the word isn't served again for 30 days
+    this.showResult(false, d, 'Skipped');
+  }
+
+  timeUp() {
+    if (this.locked) return;
+    this.locked = true; this.renderControls(); this.renderTray();
+    this.snd('playWhistle', false); this.buzz([60, 60, 60]);
+    this.record(false, 'timeout').then(d => this.showResult(false, d, "Time's up"));
+  }
+
+  // ---------- result screen ----------
+  showResult(ok, data, label) {
+    this.clearPending();
+    const prev = this.run;
+    const pts = ok && data ? (data.points_awarded || 0) : 0;
+    const sum = data && data.session_summary;
+    this.round.points = sum ? sum.points : (data && typeof data.session_points === 'number' ? data.session_points : this.round.points + pts);
+    const won = !!(ok && data && data.won);
+    this.won = won;
+    const runPoints = this.round.points;
+    // Pips for the result screen, then move to the new run state.
+    if (won) this.pips = ['ok', 'ok', 'ok', 'ok'];
+    else if (ok) this.pips = Array.from({ length: RUN_LEN }, (_, i) => (i <= prev ? 'ok' : ''));
+    else this.pips = Array.from({ length: RUN_LEN }, (_, i) => (i < prev ? 'ok' : i === prev ? 'miss' : ''));
+    this.run = won || !ok ? 0 : Math.min(RUN_LEN - 1, data && data.new_streak ? data.new_streak - 1 : prev + 1);
+    if (this.run === 0) this.round.points = 0;
+    this.saveRound();
+    this.renderHud(); this.renderSegments();
+
+    this.$('r-label').textContent = won ? 'Four in a row' : `Streak ${ok ? prev + 1 : prev} of ${RUN_LEN} · ${LEVELS[Math.min(prev, 3)]}`;
+    const st = this.$('r-state'); st.textContent = won ? 'Winner' : ok ? 'Solved' : (label || 'Missed'); st.className = 'r-state' + (ok ? '' : ' bad');
+    const ic = this.$('result-icon'); ic.className = 'result-icon' + (ok ? '' : ' bad');
+    ic.innerHTML = won
+      ? '<svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 4h10v5a5 5 0 0 1-10 0V4zM7 6H4v1a3 3 0 0 0 3 3M17 6h3v1a3 3 0 0 1-3 3M12 14v4M8 20h8"/></svg>'
+      : ok
+      ? '<svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>'
+      : '<svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>';
+    const ey = this.$('result-eyebrow'); ey.textContent = won ? 'You won' : ok ? 'Correct' : (label || 'Missed'); ey.className = 'eyebrow' + (ok ? '' : ' bad');
+
+    const rw = this.$('result-word'); rw.textContent = '';
+    this.puzzle.word.toUpperCase().split(' ').forEach((part, i, arr) => { rw.appendChild(document.createTextNode(part)); if (i < arr.length - 1) rw.appendChild(document.createElement('br')); });
+
+    // When the session ends, the stat cards show the whole session instead of the last word.
+    const ended = !!(won || !ok);
+    const total = sum || { points: runPoints, words: prev + 1, streak: won ? RUN_LEN : prev };
+    this.$('r-points').textContent = ended ? total.points.toLocaleString() : `+${pts}`;
+    this.$('r-time').textContent = ended ? total.words : `${this.lastSpent || 0}s`;
+    this.$('r-streak').textContent = ended ? total.streak : prev + 1;
+    this.$('r-points-cap').textContent = ended ? 'session points' : 'points';
+    this.$('r-time-cap').textContent = ended ? 'words played' : 'solve time';
+    this.$('r-streak-cap').textContent = ended ? 'total streak' : 'streak';
+    let note;
+    if (won) note = `Session complete. Four in a row, ${total.points.toLocaleString()} points in ${total.words} words. You have ${this.wins} ${this.wins === 1 ? 'win' : 'wins'}.`;
+    else if (ok) note = `${this.hintUsed ? 'You used a hint, so this one earned fewer points. ' : ''}Next up: ${LEVELS[this.run]} level.`;
+    else note = `Session over: ${total.points.toLocaleString()} points, a streak of ${total.streak}. A new session starts at Easy. This word comes back after 30 days.`;
+    this.$('result-note').textContent = note;
+    this.$('next-btn').textContent = won ? 'Play again' : ok ? 'Next word' : 'Start a new streak';
+    this.$('share-btn').textContent = 'Share result';
+    this.lastWon = won; this.lastRunPoints = runPoints;
+    this.open('result-screen');
+  }
+
+  nextFromResult() {
+    this.close('result-screen');
+    this.pips = [];
+    this.next();
+  }
+
+  // Play history for this number (finished sessions, newest first).
+  async loadHistory() {
+    const list = this.$('history-list'), tot = this.$('history-totals');
+    if (!list || !this.phone) return;
+    try {
+      const d = await (await fetch(`/api/history?phone_number=${encodeURIComponent(this.phone)}&limit=10`)).json();
+      const t = d.totals || {};
+      tot.textContent = t.sessions ? `${t.sessions} sessions, ${t.wins} won, best ${Number(t.best_points).toLocaleString()} pts, best streak ${t.best_streak}` : 'No finished sessions yet.';
+      list.innerHTML = '';
+      const names = { won: 'Won', missed: 'Missed', skipped: 'Skipped', timeout: "Time's up", expired: 'Expired' };
+      (d.sessions || []).forEach(s => {
+        const li = document.createElement('li');
+        const when = new Date(s.ended_at);
+        const a = document.createElement('span'); a.textContent = `${names[s.outcome] || s.outcome} · streak ${s.streak}`;
+        const b = document.createElement('span'); b.className = 'dim'; b.textContent = `${Number(s.points).toLocaleString()} pts · ${isNaN(when) ? '' : when.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}`;
+        li.appendChild(a); li.appendChild(b); list.appendChild(li);
+      });
+    } catch (e) { tot.textContent = 'History unavailable offline.'; }
+  }
+
+  async share() {
+    const text = this.lastWon
+      ? `Pitch Legends: I won a run, four in a row! ${this.lastRunPoints.toLocaleString()} pts, ${this.wins} ${this.wins === 1 ? 'win' : 'wins'}.`
+      : `Pitch Legends: ${this.score.toLocaleString()} pts, ${this.wins} ${this.wins === 1 ? 'win' : 'wins'}.`;
+    const btn = this.$('share-btn');
+    try {
+      if (navigator.share) { await navigator.share({ text, url: location.origin }); return; }
+      await navigator.clipboard.writeText(`${text} ${location.origin}`);
+      btn.textContent = 'Copied to clipboard';
+    } catch (e) { btn.textContent = 'Could not share'; }
+    setTimeout(() => { btn.textContent = 'Share result'; }, 1800);
+  }
+
+  // ---------- timer ----------
+  setTimer(sec) {
+    this.maxTimer = sec; this.store('soccer_timer_sec', sec);
+    this.syncSettings();
+    if (this.puzzle && !this.locked) this.startTimer();
+    else this.drawTimer();
+  }
+
+  syncSettings() {
+    document.querySelectorAll('#timer-seg button').forEach(b => b.classList.toggle('active', parseInt(b.dataset.time, 10) === this.maxTimer));
+    this.$('toggle-sound').setAttribute('aria-checked', String(!!this.sound.soundEnabled));
+    this.$('toggle-haptics').setAttribute('aria-checked', String(!!this.sound.hapticsEnabled));
+    this.$('player-label').textContent = this.maskPhone(this.phone);
+    if (!this.timer) this.drawTimer();
   }
 
   startTimer() {
-    this.stopTimer();
-    if (this.isZenMode) {
-      this.hudTimerText.textContent = '∞ Zen';
-      this.timerCircle.style.strokeDashoffset = '0';
-      this.timerCircle.style.stroke = 'var(--emerald-400)';
-      this.hudTimerBtn.classList.remove('urgent');
-      return;
-    }
-
-    this.remainingTimer = this.maxTimer;
-    this.updateTimerDisplay();
-
-    this.timerInterval = setInterval(() => {
-      this.remainingTimer--;
-      this.updateTimerDisplay();
-
-      if (this.remainingTimer <= this.timerUrgentThreshold && this.remainingTimer > 0) {
-        if (this.urgencyTickEnabled) {
-          this.sound.playTick(true);
-        }
-      }
-
-      if (this.remainingTimer <= 0) {
-        this.stopTimer();
-        this.handleTimeExpired();
-      }
+    this.stopTimer(); this.startedAt = Date.now();
+    if (!this.maxTimer) { this.drawTimer(); return; }
+    this.remaining = this.maxTimer; this.drawTimer();
+    this.timer = setInterval(() => {
+      this.remaining--; this.drawTimer();
+      if (this.remaining <= 5 && this.remaining > 0) this.snd('playTick', true);
+      if (this.remaining <= 0) { this.stopTimer(); this.timeUp(); }
     }, 1000);
   }
-
-  stopTimer() {
-    if (this.timerInterval) {
-      clearInterval(this.timerInterval);
-      this.timerInterval = null;
-    }
-  }
-
-  addTimeBonus(seconds = 5) {
-    if (this.isZenMode) return;
-    this.remainingTimer = Math.min(this.maxTimer + 15, this.remainingTimer + seconds);
-    this.updateTimerDisplay();
-    this.sound.playTimeBonus();
-
-    this.hudTimerBtn.style.transform = 'scale(1.15)';
-    setTimeout(() => {
-      this.hudTimerBtn.style.transform = '';
-    }, 250);
-  }
-
-  updateTimerDisplay() {
-    if (this.isZenMode) {
-      this.hudTimerText.textContent = '∞ Zen';
-      return;
-    }
-
-    this.hudTimerText.textContent = `${this.remainingTimer}s`;
-
-    const fraction = Math.max(0, this.remainingTimer / this.maxTimer);
-    const strokeOffset = (1 - fraction) * 100;
-    this.timerCircle.style.strokeDashoffset = strokeOffset;
-
-    if (fraction > 0.45) {
-      this.timerCircle.style.stroke = 'var(--emerald-400)';
-      this.hudTimerBtn.classList.remove('urgent');
-    } else if (fraction > 0.22) {
-      this.timerCircle.style.stroke = 'var(--gold-400)';
-      this.hudTimerBtn.classList.remove('urgent');
-    } else {
-      this.timerCircle.style.stroke = 'var(--ruby-500)';
-      this.hudTimerBtn.classList.add('urgent');
-    }
-  }
-
-  handleTimeExpired() {
-    this.sound.playWhistle(false);
-    document.getElementById('timeup-solution').textContent = this.currentPuzzle.word;
-    this.playerStreak = 1;
-    this.hudStreak.textContent = 'x1';
-    this.openModal(this.timeupModal);
-  }
-
-  // ==========================================================================
-  // HINTS & CATEGORY FILTER
-  // ==========================================================================
-  useClueHint() {
-    if (this.usedHints.clue) return;
-    this.usedHints.clue = true;
-    this.hintClueBtn.classList.add('used');
-    this.hintClueText.textContent = 'Clue Given';
-
-    const firstMissing = this.gapSlots.find(g => g.slottedChar === null);
-    if (firstMissing) {
-      this.mascotSpeech.textContent = `💡 Letter Clue: The next gap is '${firstMissing.expectedChar}'!`;
-    } else {
-      this.mascotSpeech.textContent = `💡 Category: ${this.currentPuzzle.category} (${this.currentPuzzle.year || ''})`;
-    }
-    this.sound.playSlot();
-  }
-
-  useEliminateHint() {
-    if (this.usedHints.eliminate) return;
-    this.usedHints.eliminate = true;
-    this.hintEliminateBtn.classList.add('used');
-
-    const expectedLetters = this.gapSlots.map(g => g.expectedChar);
-    const distractors = this.letterBank.filter(l => !expectedLetters.includes(l.char) && !l.placed);
-
-    if (distractors.length > 0) {
-      distractors.slice(0, 2).forEach(d => d.placed = true);
-      this.renderLetterBank();
-      this.mascotSpeech.textContent = '🟥 Banished 2 incorrect letters from the dugout!';
-      this.sound.playUnslot();
-    }
-  }
-
-  async renderCategoryModal() {
-    const list = document.getElementById('realm-cards-list');
-    list.innerHTML = '<div style="color: var(--text-muted); text-align: center;">Loading categories...</div>';
-
-    const categoryIcons = {
-      'World Cup Epics': '🏆',
-      'World Cup Legends': '👑',
-      'European Championships': '🇪🇺',
-      'Champions League Miracles': '⭐',
-      'Europa League & UEFA Cup': '🥈',
-      'African Cup of Nations': '🌍',
-      'Tactics & Iconic Plays': '⚡',
-      'Historic Stadiums': '🏟️',
-      'Underdogs & Fairytales': '🛡️',
-      'Trophies & Awards': '🥇'
-    };
-
-    try {
-      const res = await fetch('/api/categories');
-      const categories = await res.json();
-      list.innerHTML = '';
-
-      // All categories option
-      const allCard = document.createElement('div');
-      allCard.className = 'realm-card';
-      if (!this.selectedCategory) allCard.classList.add('active');
-      allCard.innerHTML = `
-        <div class="realm-card-left">
-          <div class="realm-card-icon">⚽</div>
-          <div>
-            <div class="realm-card-title">All Historic Tournaments</div>
-            <div class="realm-card-count">Full 190+ football question library</div>
-          </div>
-        </div>
-        <span style="font-size: 14px; color: var(--gold-400);">▶</span>
-      `;
-      allCard.addEventListener('click', () => {
-        this.selectedCategory = null;
-        this.closeModal(this.realmModal);
-        this.fetchNextPuzzle();
-        this.sound.playWhistle(true);
-      });
-      list.appendChild(allCard);
-
-      categories.forEach(cat => {
-        const card = document.createElement('div');
-        card.className = 'realm-card';
-        if (this.selectedCategory === cat.category) card.classList.add('active');
-        const icon = categoryIcons[cat.category] || '⚽';
-        card.innerHTML = `
-          <div class="realm-card-left">
-            <div class="realm-card-icon">${icon}</div>
-            <div>
-              <div class="realm-card-title">${cat.category}</div>
-              <div class="realm-card-count">${cat.count} Historic Words</div>
-            </div>
-          </div>
-          <span style="font-size: 14px; color: var(--gold-400);">▶</span>
-        `;
-        card.addEventListener('click', () => {
-          this.selectedCategory = cat.category;
-          this.closeModal(this.realmModal);
-          this.fetchNextPuzzle();
-          this.sound.playWhistle(true);
-        });
-        list.appendChild(card);
-      });
-    } catch (e) {
-      list.innerHTML = '<div style="color: #f87171;">Failed to load categories.</div>';
-    }
-  }
-
-  // ==========================================================================
-  // EVENT BINDINGS
-  // ==========================================================================
-  bindEvents() {
-    // Phone pill triggers profile modal
-    this.phonePillBtn.addEventListener('click', () => {
-      this.phoneInput.value = this.phoneNumber || '';
-      this.openModal(this.phoneModal);
-      this.sound.playTap();
-    });
-
-    const quickPhoneBtn = document.getElementById('quick-phone-bar-btn');
-    if (quickPhoneBtn) {
-      quickPhoneBtn.addEventListener('click', () => {
-        this.phoneInput.value = this.phoneNumber || '';
-        this.openModal(this.phoneModal);
-        this.sound.playTap();
-      });
-    }
-
-    // Save phone submit
-    this.savePhoneBtn.addEventListener('click', () => {
-      const inputVal = this.phoneInput.value.trim();
-      if (!inputVal) {
-        alert('Please enter a phone number to start playing.');
-        return;
-      }
-      this.initPlayerSession(inputVal);
-      this.sound.playWhistle(true);
-    });
-
-    // View switchers
-    const desktopWrapper = document.getElementById('desktop-wrapper');
-    const viewPhoneBtn = document.getElementById('view-mode-phone');
-    const viewExpandBtn = document.getElementById('view-mode-expand');
-    const quickTimerBarBtn = document.getElementById('quick-timer-bar-btn');
-
-    viewPhoneBtn.addEventListener('click', () => {
-      desktopWrapper.classList.remove('fullscreen-mode');
-      viewPhoneBtn.classList.add('active');
-      viewExpandBtn.classList.remove('active');
-      this.sound.playTap();
-      if (this.particles) this.particles.resize();
-    });
-
-    viewExpandBtn.addEventListener('click', () => {
-      desktopWrapper.classList.add('fullscreen-mode');
-      viewExpandBtn.classList.add('active');
-      viewPhoneBtn.classList.remove('active');
-      this.sound.playTap();
-      if (this.particles) this.particles.resize();
-    });
-
-    if (quickTimerBarBtn) {
-      quickTimerBarBtn.addEventListener('click', () => {
-        this.openModal(this.timerModal);
-        this.sound.playTap();
-      });
-    }
-
-    this.hudTimerBtn.addEventListener('click', () => {
-      this.openModal(this.timerModal);
-      this.sound.playTap();
-    });
-
-    // Whistle sound
-    const whistleBtn = document.getElementById('whistle-sound-btn');
-    if (whistleBtn) {
-      whistleBtn.addEventListener('click', () => this.sound.playWhistle(false));
-    }
-
-    // Sound toggle
-    const soundBtn = document.getElementById('sound-btn');
-    soundBtn.addEventListener('click', () => {
-      const state = this.sound.toggleSound();
-      soundBtn.textContent = state ? '🔊' : '🔇';
-      this.sound.playTap();
-    });
-
-    // Category filter button
-    document.getElementById('category-filter-btn').addEventListener('click', () => {
-      this.renderCategoryModal();
-      this.openModal(this.realmModal);
-      this.sound.playTap();
-    });
-
-    // Settings button
-    document.getElementById('settings-btn').addEventListener('click', () => {
-      this.openModal(this.settingsModal);
-      this.sound.playTap();
-    });
-
-    document.getElementById('switch-phone-btn').addEventListener('click', () => {
-      this.closeModal(this.settingsModal);
-      this.phoneInput.value = this.phoneNumber || '';
-      this.openModal(this.phoneModal);
-    });
-
-    // Modal close handlers
-    document.querySelectorAll('[data-close]').forEach(btn => {
-      btn.addEventListener('click', (e) => {
-        const modalId = e.currentTarget.getAttribute('data-close');
-        const modal = document.getElementById(modalId);
-        if (modal) {
-          this.closeModal(modal);
-          this.sound.playTap();
-        }
-      });
-    });
-
-    document.querySelectorAll('.game-modal').forEach(modal => {
-      modal.addEventListener('click', (e) => {
-        if (e.target === modal) this.closeModal(modal);
-      });
-    });
-
-    // Game action buttons
-    this.clearSlotsBtn.addEventListener('click', () => {
-      this.clearAllSlots();
-      this.sound.playUnslot();
-    });
-
-    this.checkAnswerBtn.addEventListener('click', () => {
-      this.verifyAnswer();
-    });
-
-    this.shuffleWordsBtn.addEventListener('click', () => {
-      this.shuffleAvailableWords();
-      this.sound.playTap();
-    });
-
-    this.hintClueBtn.addEventListener('click', () => this.useClueHint());
-    this.hintEliminateBtn.addEventListener('click', () => this.useEliminateHint());
-    this.skipPuzzleBtn.addEventListener('click', () => {
-      this.fetchNextPuzzle();
-      this.sound.playTap();
-    });
-
-    // Timer modal controls
-    document.querySelectorAll('.timer-preset-btn').forEach(btn => {
-      btn.addEventListener('click', () => {
-        document.querySelectorAll('.timer-preset-btn').forEach(b => b.classList.remove('active'));
-        btn.classList.add('active');
-        const timeVal = parseInt(btn.getAttribute('data-time'), 10);
-        if (timeVal === 0) {
-          this.customTimerSlider.value = 0;
-          this.sliderTimerVal.textContent = 'Training Ground (Untimed)';
-        } else {
-          this.customTimerSlider.value = timeVal;
-          this.sliderTimerVal.textContent = `${timeVal} seconds`;
-        }
-        this.sound.playTap();
-      });
-    });
-
-    this.customTimerSlider.addEventListener('input', (e) => {
-      const val = parseInt(e.target.value, 10);
-      this.sliderTimerVal.textContent = `${val} seconds`;
-      document.querySelectorAll('.timer-preset-btn').forEach(b => {
-        b.classList.toggle('active', parseInt(b.getAttribute('data-time'), 10) === val);
-      });
-    });
-
-    this.saveTimerBtn.addEventListener('click', () => {
-      this.applyModifiedTimerSettings();
-      this.closeModal(this.timerModal);
-      this.sound.playWhistle(true);
-    });
-
-    // Victory modal buttons
-    document.getElementById('victory-next-btn').addEventListener('click', () => {
-      this.closeModal(this.victoryModal);
-      this.fetchNextPuzzle();
-    });
-    document.getElementById('victory-profile-btn').addEventListener('click', () => {
-      this.closeModal(this.victoryModal);
-      this.openModal(this.phoneModal);
-    });
-
-    // Time Up retry
-    document.getElementById('timeup-retry-btn').addEventListener('click', () => {
-      this.closeModal(this.timeupModal);
-      this.clearAllSlots();
-      this.startTimer();
-    });
-    document.getElementById('timeup-adjust-timer-btn').addEventListener('click', () => {
-      this.closeModal(this.timeupModal);
-      this.openModal(this.timerModal);
-    });
-
-    // Physical Keyboard Support (A-Z to slot, Backspace to undo, Enter to complete)
-    window.addEventListener('keydown', (e) => {
-      if (document.querySelector('.game-modal.active')) return;
-      const key = e.key.toUpperCase();
-      if (/^[A-Z]$/.test(key)) {
-        // Find matching letter in available bank
-        const bankItem = this.letterBank.find(l => l.char === key && !l.placed);
-        if (bankItem) {
-          this.slotLetter(bankItem.char, bankItem.id);
-        }
-      } else if (e.key === 'Backspace') {
-        this.unslotActiveOrLast();
-      } else if (e.key === 'Enter') {
-        this.verifyAnswer();
-      }
-    });
-  }
-
-  // ==========================================================================
-  // HELPERS
-  // ==========================================================================
-  openModal(modal) {
-    if (!modal) return;
-    modal.classList.add('active');
-  }
-
-  closeModal(modal) {
-    if (!modal) return;
-    modal.classList.remove('active');
-  }
-
-  shuffleArray(arr) {
-    const copy = [...arr];
-    for (let i = copy.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [copy[i], copy[j]] = [copy[j], copy[i]];
-    }
-    return copy;
+  stopTimer() { if (this.timer) { clearInterval(this.timer); this.timer = null; } }
+  drawTimer() {
+    const chip = this.$('timer-chip'), txt = this.$('hud-timer');
+    if (!this.maxTimer) { txt.textContent = 'No timer'; chip.classList.remove('low'); return; }
+    const s = this.timer ? this.remaining : this.maxTimer;
+    txt.textContent = `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+    chip.classList.toggle('low', !!this.timer && s <= 10);
   }
 }
 
-// Kickoff
-window.addEventListener('DOMContentLoaded', () => {
-  window.game = new SoccerWordGapGame();
-});
+window.addEventListener('DOMContentLoaded', () => { window.game = new MaskedWordGame(); });
