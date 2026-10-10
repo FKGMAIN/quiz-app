@@ -1,0 +1,18 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: pitch-legends-app
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - PORT=3000
+      - DB_TYPE=sqlite
+      - SQLITE_DB_PATH=/app/data/soccer_puzzle.db
+    volumes:
+      - sqlite_data:/app/data
+
+volumes:
+  sqlite_data:

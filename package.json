@@ -1,21 +1,26 @@
 {
-  "name": "pitch-legends-football-word-gap",
-  "version": "1.0.0",
-  "description": "Fast mobile-view soccer word gap puzzle with phone session 30-day cooldown, PostgreSQL/SQLite backend, and 120+ historic words",
-  "main": "server.js",
+  "name": "pitch-legends",
+  "version": "2.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Pitch Legends: fill the gaps in football and entertainment names. Nuxt app with a SQLite or PostgreSQL backend.",
+  "engines": { "node": ">=22.13" },
   "scripts": {
-    "start": "node server.js",
-    "dev": "node server.js",
-    "seed": "node seed.js",
-    "seed:entertainment": "node seed_entertainment.js",
-    "dedupe": "node dedupe_puzzles.js"
+    "dev": "nuxt dev",
+    "build": "nuxt build",
+    "preview": "node .output/server/index.mjs",
+    "postinstall": "nuxt prepare",
+    "typecheck": "nuxt typecheck",
+    "test": "node --experimental-strip-types --no-warnings --test test/*.test.mjs"
   },
   "dependencies": {
-    "express": "^4.21.2",
+    "nuxt": "^4.0.0",
     "pg": "^8.13.1",
-    "sqlite3": "^5.1.7"
+    "vue": "^3.5.0",
+    "vue-router": "^4.5.0"
   },
-  "keywords": ["soccer", "football", "puzzle", "mobile-game", "word-game", "sqlite", "postgres"],
-  "author": "Antigravity",
-  "license": "MIT"
+  "devDependencies": {
+    "typescript": "^5.6.0",
+    "vue-tsc": "^3.0.0"
+  }
 }

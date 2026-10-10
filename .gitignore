@@ -1,2 +1,17 @@
 node_modules/
+.nuxt/
+.output/
+.data/
+dist/
 .DS_Store
+.env
+.env.*
+!.env.example
+npm-debug.log*
+
+# Player data never goes in git
+data/
+*.db
+*.db-wal
+*.db-shm
+*.db-journal
