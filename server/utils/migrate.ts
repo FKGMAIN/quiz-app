@@ -151,6 +151,49 @@ const MIGRATIONS: Migration[] = [
         if (have.includes(c)) await db.exec(`ALTER TABLE puzzles DROP COLUMN ${c}`)
       }
     }
+  },
+  {
+    version: 5,
+    name: 'streaks, rules and daily leaderboard',
+    async up(db) {
+      // Streak state lives on the session so a refresh resumes exactly where the player was.
+      await addColumn(db, 'sessions', 'streak_no', 'INTEGER NOT NULL DEFAULT 1')
+      await addColumn(db, 'sessions', 'in_streak', 'INTEGER NOT NULL DEFAULT 0')
+      await addColumn(db, 'sessions', 'streaks_won', 'INTEGER NOT NULL DEFAULT 0')
+      await addColumn(db, 'sessions', 'phase', "TEXT NOT NULL DEFAULT 'playing'")   // 'playing' | 'between' (choosing to continue or bank)
+      await addColumn(db, 'sessions', 'penalty', 'INTEGER NOT NULL DEFAULT 0')
+      await addColumn(db, 'plays', 'streak_no', 'INTEGER')
+      await addColumn(db, 'plays', 'position', 'INTEGER')
+      // Old runs were four-in-a-row; a win counts as one streak. A run in progress keeps its progress.
+      await db.exec("UPDATE sessions SET streaks_won = CASE WHEN outcome = 'won' THEN 1 ELSE 0 END WHERE id LIKE 'legacy-%'")
+      await db.exec("UPDATE sessions SET in_streak = correct WHERE status = 'active' AND correct < 5")
+
+      await db.exec(`CREATE TABLE IF NOT EXISTS game_rules (
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL,
+        description TEXT,
+        updated_at TEXT
+      )`)
+      for (const [key, value] of Object.entries(DEFAULT_RULES)) {
+        await db.run(
+          'INSERT INTO game_rules (key, value, description, updated_at) VALUES (?, ?, ?, ?) ON CONFLICT (key) DO NOTHING',
+          [key, JSON.stringify(value), (RULE_DESCRIPTIONS as Record<string, string>)[key], new Date().toISOString()]
+        )
+      }
+
+      // Every point gained or lost, stamped with its leaderboard day, so the board is a simple sum.
+      await db.exec(`CREATE TABLE IF NOT EXISTS point_events (
+        id ${pkSql(db)},
+        phone_number TEXT NOT NULL,
+        session_id TEXT,
+        kind TEXT NOT NULL,
+        points INTEGER NOT NULL DEFAULT 0,
+        streak_no INTEGER,
+        day TEXT NOT NULL,
+        created_at TEXT NOT NULL
+      )`)
+      await db.exec('CREATE INDEX IF NOT EXISTS ix_point_events_day ON point_events(day, phone_number)')
+    }
   }
 ]
 

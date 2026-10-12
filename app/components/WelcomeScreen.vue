@@ -13,7 +13,7 @@ const submit = () => emit('login', phone.value)
         <div class="logo" aria-hidden="true"><span class="lt">P</span><span class="lt gap" /><span class="lt">T</span><span class="lt">C</span><span class="lt">H</span></div>
         <div>
           <h1 class="h1">Fill the gaps.<br>Name the legend.</h1>
-          <p class="lede">Get four in a row to win. Names from football, film, music, TV and games, getting harder with every streak. Each has letters missing. No clues, just what you remember.</p>
+          <p class="lede">Five right in a row makes a streak. Play two to start, more for bigger points and a higher place on today's leaderboard. Names from football, film, music, TV and games, each with letters missing. No clues, just what you remember.</p>
         </div>
       </div>
       <form class="welcome-form" @submit.prevent="submit">

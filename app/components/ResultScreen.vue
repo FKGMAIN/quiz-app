@@ -5,10 +5,12 @@ const props = defineProps<{
   result: ResultView
   nextAction: () => unknown
   shareAction: () => Promise<'shared' | 'copied' | 'failed'>
+  openShare?: () => unknown
 }>()
 
 const shareLabel = ref('Share result')
 async function share() {
+  if (props.result.ended && props.openShare) return props.openShare()
   const outcome = await props.shareAction()
   if (outcome === 'shared') return
   shareLabel.value = outcome === 'copied' ? 'Copied to clipboard' : 'Could not share'
@@ -32,7 +34,7 @@ const lines = computed(() => props.result.word.split(' '))
         </div>
         <div>
           <div class="eyebrow" :class="{ bad: !result.ok }">{{ result.eyebrow }}</div>
-          <h1 class="result-word">
+          <h1 v-if="result.word" class="result-word">
             <template v-for="(part, i) in lines" :key="i">{{ part }}<br v-if="i < lines.length - 1"></template>
           </h1>
         </div>

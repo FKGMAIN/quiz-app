@@ -1,4 +1,4 @@
-// Sign in (or create) a player by phone number and return their current run.
+// Sign in (or create) a player by phone number and return their current session.
 export default defineEventHandler(async (event) => {
   const body = await readBody(event)
   const phone = normalizePhone(body?.phone_number)
@@ -7,6 +7,7 @@ export default defineEventHandler(async (event) => {
   const db = await useDb()
   const now = new Date()
   return db.tx(async (tx) => {
+    const rules = await getRules(tx)
     await tx.run(
       `INSERT INTO users (phone_number, created_at, last_active_at, score, wins) VALUES (?, ?, ?, 0, 0)
        ON CONFLICT (phone_number) DO UPDATE SET last_active_at = excluded.last_active_at`,
@@ -22,7 +23,7 @@ export default defineEventHandler(async (event) => {
       phone_number: phone,
       score: num(user.score),
       wins: num(user.wins),
-      session: sessionView(session),
+      session: sessionView(session, rules),
       session_expired: expired,
       total_puzzles: total,
       answered_in_30_days: recent,

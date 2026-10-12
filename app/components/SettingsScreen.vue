@@ -24,14 +24,15 @@ function toggleHaptics() {
 }
 
 // Play history for this number.
+const shareId = ref('')
 const history = ref<HistoryResponse | null>(null)
 const historyError = ref(false)
-const OUTCOMES: Record<string, string> = { won: 'Won', missed: 'Missed', skipped: 'Skipped', timeout: "Time's up", expired: 'Expired' }
+const OUTCOMES: Record<string, string> = { won: 'Won', banked: 'Banked', missed: 'Missed', skipped: 'Skipped', timeout: "Time's up", expired: 'Expired' }
 const totalsText = computed(() => {
   if (historyError.value) return 'History unavailable offline.'
   if (!history.value) return 'Loading…'
   const t = history.value.totals
-  return t.sessions ? `${t.sessions} sessions, ${t.wins} won, best ${t.best_points.toLocaleString()} pts, best streak ${t.best_streak}` : 'No finished sessions yet.'
+  return t.sessions ? `${t.sessions} sessions, ${t.wins} won, best ${t.best_points.toLocaleString()} pts, most streaks ${t.best_streaks}` : 'No finished sessions yet.'
 })
 const shortDate = (iso: string) => {
   const d = new Date(iso)
@@ -73,8 +74,8 @@ onMounted(async () => {
         <div class="group-label">Play history</div>
         <div class="fine">{{ totalsText }}</div>
         <ul class="history">
-          <li v-for="(s, i) in history?.sessions || []" :key="i">
-            <span>{{ OUTCOMES[s.outcome] || s.outcome }} · streak {{ s.streak }}</span>
+          <li v-for="(s, i) in history?.sessions || []" :key="i" :class="{ tap: !s.id.startsWith('legacy-') }" @click="!s.id.startsWith('legacy-') && (shareId = s.id)">
+            <span>{{ OUTCOMES[s.outcome] || s.outcome }} · {{ s.streaks }} {{ s.streaks === 1 ? 'streak' : 'streaks' }}</span>
             <span class="dim">{{ s.points.toLocaleString() }} pts · {{ shortDate(s.ended_at) }}</span>
           </li>
         </ul>
@@ -98,4 +99,5 @@ onMounted(async () => {
       </div>
     </div>
   </div>
+  <ShareScreen v-if="shareId" :session-id="shareId" @close="shareId = ''" />
 </template>

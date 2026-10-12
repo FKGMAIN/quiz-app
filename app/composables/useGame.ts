@@ -1,6 +1,5 @@
-import type { AnswerResponse, PuzzleResponse } from '~/types/api'
+import type { AnswerResponse, PuzzleResponse, SessionSummary, SessionView } from '~/types/api'
 
-export const RUN_LEN = 4
 export const LEVELS = ['Easy', 'Medium', 'Hard', 'Expert']
 
 export interface Gap { idx: number; value: string | null; keyId: number | null; revealed: boolean }
@@ -26,8 +25,24 @@ export interface ResultView {
   pips: string[]
 }
 
+/** What the between-streaks screen shows. */
+export interface StreakPrompt {
+  mode: 'decision' | 'final'
+  completed: number          // streak number just won
+  nextStreak: number
+  multiplier: number
+  points: number             // session points so far
+  penalty: number | null     // cost of failing the compulsory streak
+}
+
+const DEFAULT_SESSION: SessionView = {
+  id: '', status: 'active', phase: 'playing', streak_no: 1, in_streak: 0, streaks_won: 0, questions_per_streak: 5,
+  entitled_streaks: 2, max_streaks: 3, compulsory: false, multiplier: 1, correct: 0, points: 0, words: 0, expires_at: '',
+  decision: null, penalty_if_failed: null
+}
+
 /**
- * Game state and actions. The server owns the truth (answer, clock, points, run counter);
+ * Game state and actions. The server owns the truth (answer, clock, points, streak counters);
  * this composable only keeps what is on screen and sends the player's letters.
  */
 export function useGame() {
@@ -38,11 +53,11 @@ export function useGame() {
   // ---- player ----
   const score = ref(0)
   const wins = ref(0)
-  const run = ref(0)                         // words solved in the current run, 0..3; level = run + 1
-  const runPoints = ref(0)
+  const session = ref<SessionView>({ ...DEFAULT_SESSION })
 
   // ---- current word ----
   const playId = ref(0)
+  const difficulty = ref(1)
   const hasPuzzle = ref(false)
   const layout = shallowRef<Cell[][]>([])
   const gaps = ref<Gap[]>([])
@@ -59,11 +74,19 @@ export function useGame() {
   // ---- screens ----
   const welcomeOpen = ref(false)
   const settingsOpen = ref(false)
+  const leaderboardOpen = ref(false)
   const resultOpen = ref(false)
+  const streakOpen = ref(false)
   const loginError = ref('')
   const canCancelLogin = ref(false)
   const result = ref<ResultView | null>(null)
+  const prompt = ref<StreakPrompt | null>(null)
+  const pendingPrompt = ref<StreakPrompt | null>(null)   // shown after the result screen is dismissed
+  const busy = ref(false)
+  const promptError = ref('')
   const lastShare = ref('')
+  const shareSessionId = ref('')      // finished session the share screen shows
+  const shareOpen = ref(false)
 
   // ---- timer ----
   const remaining = ref(0)
@@ -73,14 +96,30 @@ export function useGame() {
   const phone = settings.phone
 
   // ---------- derived ----------
+  const perStreak = computed(() => session.value.questions_per_streak)
   const filled = computed(() => gaps.value.length > 0 && gaps.value.every(g => g.value))
   const emptyCount = computed(() => gaps.value.filter(g => !g.value).length)
   const nextEmpty = computed(() => gaps.value.find(g => !g.value)?.idx ?? -1)
   const canCheck = computed(() => !locked.value && filled.value)
   const canReveal = computed(() => !locked.value && hintsLeft.value > 0 && emptyCount.value > 0)
   const canUndo = computed(() => !locked.value && gaps.value.some(g => g.value && !g.revealed))
-  const roundLabel = computed(() => `Streak ${run.value} of ${RUN_LEN} · ${LEVELS[Math.min(run.value, 3)]}`)
-  const segments = computed(() => Array.from({ length: RUN_LEN }, (_, i) => (i < run.value ? 'ok' : i === run.value ? 'now' : '')))
+  const streakLabel = computed(() => {
+    const s = session.value
+    return s.compulsory ? 'Final streak' : `Streak ${s.streak_no}`
+  })
+  const roundLabel = computed(() => {
+    const s = session.value
+    const level = hasPuzzle.value ? ` · ${LEVELS[Math.min(difficulty.value, 4) - 1]}` : ''
+    return `${s.compulsory ? 'Final streak, must win' : `Streak ${s.streak_no} of ${s.max_streaks}`}${level}`
+  })
+  const segments = computed(() =>
+    Array.from({ length: perStreak.value }, (_, i) => (i < session.value.in_streak ? 'ok' : i === session.value.in_streak ? 'now' : '')))
+  const multiplierText = computed(() => `x${session.value.multiplier} pts`)
+  const status = computed(() => {
+    if (message.value) return message.value
+    if (locked.value || !hasPuzzle.value) return ''
+    return filled.value ? 'Ready to check' : `${emptyCount.value} ${emptyCount.value === 1 ? 'letter' : 'letters'} to go`
+  })
   const timerText = computed(() => {
     if (!settings.timer.value) return 'No timer'
     const s = timerRunning.value ? remaining.value : settings.timer.value
@@ -88,16 +127,12 @@ export function useGame() {
   })
   const timerLow = computed(() => !!settings.timer.value && timerRunning.value && remaining.value <= 10)
 
-  const status = computed(() => {
-    if (message.value) return message.value
-    if (locked.value || !hasPuzzle.value) return ''
-    return filled.value ? 'Ready to check' : `${emptyCount.value} ${emptyCount.value === 1 ? 'letter' : 'letters'} to go`
-  })
-
   function setStatus(text: string, kind: '' | 'good' | 'bad' = '') {
     message.value = text
     statusKind.value = kind
   }
+
+  const EXPIRED = 'Your last session expired after 24 hours, so we started a fresh one.'
 
   // ---------- session ----------
   async function login(raw: string, silent = false) {
@@ -108,9 +143,8 @@ export function useGame() {
       settings.setPhone(d.phone_number)
       score.value = d.score
       wins.value = d.wins
-      run.value = Math.min(RUN_LEN - 1, d.session.correct)
-      runPoints.value = d.session.points
-      if (d.session_expired) notice.value = 'Your last session expired after 24 hours, so we started a fresh one.'
+      session.value = d.session
+      if (d.session_expired) notice.value = EXPIRED
       welcomeOpen.value = false
       canCancelLogin.value = false
       await next()
@@ -136,19 +170,27 @@ export function useGame() {
     stopTimer()
     locked.value = true
     try {
-      load(await api.next(phone.value))
+      const d = await api.next(phone.value)
+      if (d.between) {
+        // A refresh while choosing between streaks lands here.
+        session.value = d.session
+        hasPuzzle.value = false
+        openPrompt(promptFrom(d.session, 'decision'))
+        return
+      }
+      load(d)
     } catch (e: any) {
       if (e instanceof ApiError && e.status === 404) showEmpty('All caught up', e.message)
       else showEmpty('Offline', e?.message || 'Could not reach the server. Check your connection and refresh.')
     }
   }
 
-  function showEmpty(title: string, message: string) {
+  function showEmpty(title: string, text: string) {
     hasPuzzle.value = false
     layout.value = []
     gaps.value = []
     keys.value = []
-    emptyNote.value = { title, message }
+    emptyNote.value = { title, message: text }
     setStatus('')
     stopTimer()
   }
@@ -162,8 +204,8 @@ export function useGame() {
     gaps.value = Array.from({ length: g }, (_, idx) => ({ idx, value: null, keyId: null, revealed: false }))
     keys.value = p.tiles.map((char, id) => ({ id, char: char.toUpperCase(), used: false }))
     playId.value = p.play_id
-    run.value = Math.min(RUN_LEN - 1, p.session.correct)
-    runPoints.value = p.session.points
+    difficulty.value = p.difficulty
+    session.value = p.session
     active.value = 0
     hintsLeft.value = 1
     wordState.value = ''
@@ -171,7 +213,7 @@ export function useGame() {
     hasPuzzle.value = true
     locked.value = false
     if (p.hint) applyHint(p.hint.gap, p.hint.letter)          // a refresh keeps an already-used hint
-    if (p.session_expired) notice.value = 'Your last session expired after 24 hours, so we started a fresh one.'
+    if (p.session_expired) notice.value = EXPIRED
     setStatus(notice.value)
     notice.value = ''
     startTimer(p.elapsed_ms)
@@ -253,7 +295,7 @@ export function useGame() {
         stopTimer()
         wordState.value = 'correct'
         setStatus('Nice one!', 'good')
-        sound.play('playCorrect', run.value + 1)
+        sound.play('playCorrect', session.value.in_streak + 1)
         sound.buzz([20, 40, 20])
         setTimeout(() => showResult(d), 650)
         return
@@ -301,7 +343,7 @@ export function useGame() {
 
   async function handleAnswerError(e: any) {
     if (e instanceof ApiError && e.status === 410) {
-      // The run expired while the word was open: start over from the server's state.
+      // The session expired while the word was open: start over from the server's state.
       notice.value = e.message
       await login(phone.value, true)
       return
@@ -316,56 +358,141 @@ export function useGame() {
   }
 
   // ---------- result screen ----------
+  const fmt = (n: number) => n.toLocaleString()
+
+  function promptFrom(s: SessionView, mode: 'decision' | 'final'): StreakPrompt {
+    return mode === 'decision'
+      ? { mode, completed: s.streak_no, nextStreak: s.decision?.next_streak ?? s.streak_no + 1, multiplier: s.decision?.multiplier ?? s.multiplier, points: s.points, penalty: s.penalty_if_failed }
+      : { mode, completed: s.streak_no - 1, nextStreak: s.streak_no, multiplier: s.multiplier, points: s.points, penalty: s.penalty_if_failed }
+  }
+
   function showResult(d: AnswerResponse, label?: string) {
     const ok = d.correct
-    const won = !!d.won
     const ended = !!d.session_ended
-    const prev = run.value
+    const flow = d.flow || null
+    const before = session.value                              // state before this answer
+    const prev = before.in_streak                             // position of this word within its streak
+    const streakNo = before.streak_no
+    const per = before.questions_per_streak
     const pts = d.points_awarded || 0
     if (typeof d.score === 'number') score.value = d.score
     if (typeof d.wins === 'number') wins.value = d.wins
+    session.value = d.session
+    if (ended) shareSessionId.value = d.session.id
 
-    const pips = won ? ['ok', 'ok', 'ok', 'ok']
-      : ok ? Array.from({ length: RUN_LEN }, (_, i) => (i <= prev ? 'ok' : ''))
-      : Array.from({ length: RUN_LEN }, (_, i) => (i < prev ? 'ok' : i === prev ? 'miss' : ''))
+    const pips = ok
+      ? Array.from({ length: per }, (_, i) => (i <= prev ? 'ok' : ''))
+      : Array.from({ length: per }, (_, i) => (i < prev ? 'ok' : i === prev ? 'miss' : ''))
 
-    // Move to the next run state.
-    run.value = ended ? 0 : Math.min(RUN_LEN - 1, d.session ? d.session.correct : prev + 1)
-    runPoints.value = ended ? 0 : d.session ? d.session.points : runPoints.value
-
-    const total = d.summary || { outcome: '', streak: prev, points: runPoints.value, words: prev + 1 }
-    const hint = d.hint_used
+    const total: SessionSummary = d.summary || { outcome: '', streaks: d.session.streaks_won, correct: d.session.correct, points: d.session.points, words: d.session.words, penalty: 0 }
+    const won = !!d.won
     let note: string
-    if (won) note = `Session complete. Four in a row, ${total.points.toLocaleString()} points in ${total.words} words. You have ${wins.value} ${wins.value === 1 ? 'win' : 'wins'}.`
-    else if (ok) note = `${hint ? 'You used a hint, so this one earned fewer points. ' : ''}Next up: ${LEVELS[run.value]} level.`
-    else note = `Session over: ${total.points.toLocaleString()} points, a streak of ${total.streak}. A new session starts at Easy. This word comes back after 30 days.`
+    if (won) note = `Session complete: all ${d.session.max_streaks + 1} streaks won, ${fmt(total.points)} points. You have ${wins.value} ${wins.value === 1 ? 'win' : 'wins'}.`
+    else if (!ok) {
+      note = `Session over: ${fmt(total.points)} points from ${total.streaks} ${total.streaks === 1 ? 'streak' : 'streaks'}.`
+      if (d.penalty) note += ` The final streak was lost, so ${fmt(d.penalty)} points were taken off.`
+      note += ' A new session starts at Streak 1. This word comes back after 30 days.'
+    } else if (flow === 'decision') note = `Streak ${streakNo} complete. Bank ${fmt(d.session.points)} points, or play on for x${d.session.decision?.multiplier ?? ''} points.`
+    else if (flow === 'final') note = `All ${before.max_streaks} streaks won. The final streak is compulsory: win it, or lose ${fmt(d.session.penalty_if_failed || 0)} points.`
+    else if (flow === 'next') note = `Streak ${streakNo} complete. Streak ${streakNo + 1} pays x${d.session.multiplier} points.`
+    else note = `${d.hint_used ? 'You used a hint, so this one earned fewer points. ' : ''}${per - (prev + 1)} to go in this streak.`
 
+    const streakDone = ok && !!flow
     result.value = {
       ok, won, ended,
-      label: won ? 'Four in a row' : `Streak ${ok ? prev + 1 : prev} of ${RUN_LEN} · ${LEVELS[Math.min(prev, 3)]}`,
-      state: won ? 'Winner' : ok ? 'Solved' : (label || 'Missed'),
-      eyebrow: won ? 'You won' : ok ? 'Correct' : (label || 'Missed'),
+      label: `${before.compulsory ? 'Final streak' : `Streak ${streakNo}`} · Question ${prev + 1} of ${per}`,
+      state: won ? 'Winner' : ok ? (streakDone ? 'Streak won' : 'Solved') : (label || 'Missed'),
+      eyebrow: won ? 'You won' : streakDone ? `Streak ${streakNo} complete` : ok ? 'Correct' : (label || 'Missed'),
       word: (d.word || '').toUpperCase(),
-      points: ended ? total.points.toLocaleString() : `+${pts}`,
+      points: ended ? fmt(total.points) : `+${fmt(pts)}`,
       pointsCap: ended ? 'session points' : 'points',
       time: ended ? String(total.words) : `${d.time_spent || 0}s`,
       timeCap: ended ? 'words played' : 'solve time',
-      streak: String(ended ? total.streak : prev + 1),
-      streakCap: ended ? 'total streak' : 'streak',
+      streak: ended ? String(total.streaks) : String(d.session.streaks_won),
+      streakCap: ended || d.session.streaks_won !== 1 ? 'streaks won' : 'streak won',
       note,
-      nextLabel: won ? 'Play again' : ok ? 'Next word' : 'Start a new streak',
+      nextLabel: ended ? (won ? 'Play again' : 'Start a new session') : flow === 'decision' || flow === 'final' ? 'Continue' : flow === 'next' ? 'Next streak' : 'Next word',
       pips
     }
-    lastShare.value = won
-      ? `Pitch Legends: I won a run, four in a row! ${total.points.toLocaleString()} pts, ${wins.value} ${wins.value === 1 ? 'win' : 'wins'}.`
-      : `Pitch Legends: ${score.value.toLocaleString()} pts, ${wins.value} ${wins.value === 1 ? 'win' : 'wins'}.`
+    pendingPrompt.value = ok && (flow === 'decision' || flow === 'final') ? promptFrom(d.session, flow) : null
+    lastShare.value = ended
+      ? `Pitch Legends: ${fmt(total.points)} pts and ${total.streaks} ${total.streaks === 1 ? 'streak' : 'streaks'} today${won ? ', including the final one' : ''}.`
+      : `Pitch Legends: ${fmt(score.value)} pts, ${wins.value} ${wins.value === 1 ? 'win' : 'wins'}.`
     resultOpen.value = true
+  }
+
+  function openPrompt(p: StreakPrompt) {
+    prompt.value = p
+    promptError.value = ''
+    streakOpen.value = true
   }
 
   function nextFromResult() {
     resultOpen.value = false
     result.value = null
+    if (pendingPrompt.value) {
+      const p = pendingPrompt.value
+      pendingPrompt.value = null
+      openPrompt(p)
+      return
+    }
     return next()
+  }
+
+  // ---------- between streaks ----------
+  async function continuePlaying() {
+    if (busy.value) return
+    // The compulsory streak has already started on the server; only a normal decision needs a call.
+    if (prompt.value?.mode === 'decision') {
+      busy.value = true
+      try {
+        session.value = (await api.choose(phone.value, 'continue')).session
+      } catch (e: any) {
+        busy.value = false
+        promptError.value = e?.message || 'Could not continue. Try again.'
+        return
+      }
+      busy.value = false
+    }
+    streakOpen.value = false
+    prompt.value = null
+    await next()
+  }
+
+  async function bankPoints() {
+    if (busy.value) return
+    busy.value = true
+    try {
+      const d = await api.choose(phone.value, 'stop')
+      streakOpen.value = false
+      prompt.value = null
+      const s = d.summary!
+      session.value = d.session
+      shareSessionId.value = d.session.id
+      result.value = {
+        ok: true, won: false, ended: true,
+        label: `${s.streaks} ${s.streaks === 1 ? 'streak' : 'streaks'} banked`,
+        state: 'Banked', eyebrow: 'Points banked', word: '',
+        points: fmt(s.points), pointsCap: 'session points',
+        time: String(s.words), timeCap: 'words played',
+        streak: String(s.streaks), streakCap: 'streaks won',
+        note: `You banked ${fmt(s.points)} points from ${s.streaks} streaks. A new session starts at Streak 1.`,
+        nextLabel: 'Start a new session',
+        pips: Array.from({ length: session.value.questions_per_streak }, () => 'ok')
+      }
+      lastShare.value = `Pitch Legends: ${fmt(s.points)} pts and ${s.streaks} streaks today.`
+      resultOpen.value = true
+    } catch (e: any) {
+      promptError.value = e?.message || 'Could not bank your points. Try again.'
+    } finally {
+      busy.value = false
+    }
+  }
+
+  function openShare(id = shareSessionId.value) {
+    if (!id) return
+    shareSessionId.value = id
+    shareOpen.value = true
   }
 
   async function share(): Promise<'shared' | 'copied' | 'failed'> {
@@ -413,7 +540,7 @@ export function useGame() {
 
   // ---------- keyboard + lifecycle ----------
   function onKey(e: KeyboardEvent) {
-    if (welcomeOpen.value || settingsOpen.value || resultOpen.value || !hasPuzzle.value || locked.value) return
+    if (welcomeOpen.value || settingsOpen.value || shareOpen.value || leaderboardOpen.value || resultOpen.value || streakOpen.value || !hasPuzzle.value || locked.value) return
     if (e.key === 'Backspace') return undo()
     if (e.key === 'Enter') return void check()
     const ch = e.key.length === 1 ? e.key.toUpperCase() : ''
@@ -433,11 +560,12 @@ export function useGame() {
 
   return {
     // state
-    score, wins, run, runPoints, hasPuzzle, layout, gaps, keys, active, locked, hintsLeft, wordState,
-    status, statusKind, emptyNote, welcomeOpen, settingsOpen, resultOpen, loginError, canCancelLogin, result,
+    score, wins, session, hasPuzzle, layout, gaps, keys, active, locked, hintsLeft, wordState,
+    status, statusKind, emptyNote, welcomeOpen, settingsOpen, leaderboardOpen, shareOpen, shareSessionId, resultOpen, streakOpen, loginError, canCancelLogin,
+    result, prompt, busy, promptError,
     // derived
-    filled, nextEmpty, canCheck, canReveal, canUndo, roundLabel, segments, timerText, timerLow,
+    filled, nextEmpty, canCheck, canReveal, canUndo, streakLabel, roundLabel, segments, multiplierText, timerText, timerLow,
     // actions
-    login, switchPhone, place, clearGap, focusGap, undo, reveal, check, skip, nextFromResult, share, changeTimer
+    login, switchPhone, place, clearGap, focusGap, undo, reveal, check, skip, nextFromResult, continuePlaying, bankPoints, share, openShare, changeTimer
   }
 }

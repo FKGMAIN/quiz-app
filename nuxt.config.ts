@@ -4,8 +4,10 @@
 const themeBootstrap = `(function(){try{var t=localStorage.getItem('soccer_theme');if(t!=='light'&&t!=='dark')t=(window.matchMedia&&matchMedia('(prefers-color-scheme: light)').matches)?'light':'dark';document.documentElement.setAttribute('data-theme',t)}catch(e){document.documentElement.setAttribute('data-theme','dark')}})()`
 
 export default defineNuxtConfig({
-  compatibilityDate: '2025-07-15',
+  compatibilityDate: '2026-10-10',
   ssr: false,
+  srcDir: 'app',          // client code lives in app/ on both Nuxt 3 and 4
+  serverDir: 'server',    // Nuxt 3 would otherwise look for app/server
   devtools: { enabled: false },
   css: ['~/assets/css/main.css'],
 

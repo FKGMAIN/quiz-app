@@ -155,3 +155,21 @@ button.tile { cursor: pointer; }
 
 /* ---------- Nuxt mount point ---------- */
 #__nuxt { width: 100%; height: 100%; display: flex; justify-content: center; }
+
+/* ---------- Leaderboard ---------- */
+.board li.you { border-color: var(--accentText); background: var(--surface2); }
+.board .rank { display: inline-block; min-width: 26px; font-family: var(--display); font-weight: 800; }
+
+/* Share screen */
+.share-card { display: flex; flex-direction: column; gap: 16px; }
+.share-title { font-size: 32px; line-height: 1.05; font-weight: 800; margin: 0; }
+.share-grid { display: flex; flex-direction: column; gap: 10px; padding: 16px; border-radius: 16px; background: var(--surface); border: 1px solid var(--line); }
+.share-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.share-lbl { font-weight: 700; }
+.share-lbl small { margin-left: 6px; color: var(--muted); font-weight: 600; }
+.share-cells { display: flex; gap: 6px; }
+.share-cells i { width: 26px; height: 26px; border-radius: 7px; background: var(--good); }
+.share-cells i.hint { background: var(--hint, #e8b64c); }
+.share-cells i.miss { background: var(--bad, #ff8573); }
+.share-penalty { color: var(--bad, #ff8573); font-weight: 700; }
+.history li.tap { cursor: pointer; }

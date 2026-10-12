@@ -15,3 +15,5 @@ data/
 *.db-wal
 *.db-shm
 *.db-journal
+.idea
+.output

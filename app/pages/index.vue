@@ -1,11 +1,18 @@
 <script setup lang="ts">
-// The whole game is one screen plus three overlays. All state lives in useGame().
+// The whole game is one screen plus overlays. All state lives in useGame().
 const g = reactive(useGame())
 </script>
 
 <template>
   <main class="app" id="app">
-    <GameHeader :streak="g.run + 1" :timer-text="g.timerText" :timer-low="g.timerLow" @settings="g.settingsOpen = true" />
+    <GameHeader
+      :streak-label="g.streakLabel"
+      :multiplier="g.multiplierText"
+      :timer-text="g.timerText"
+      :timer-low="g.timerLow"
+      @leaderboard="g.leaderboardOpen = true"
+      @settings="g.settingsOpen = true"
+    />
 
     <div class="progress">
       <div class="progress-row"><span>{{ g.roundLabel }}</span><span>{{ g.score.toLocaleString() }} pts</span></div>
@@ -41,7 +48,17 @@ const g = reactive(useGame())
     <button class="ghost" :disabled="g.locked || !g.hasPuzzle" @click="g.skip()">Skip this word</button>
   </main>
 
-  <ResultScreen v-if="g.resultOpen && g.result" :result="g.result" :next-action="g.nextFromResult" :share-action="g.share" />
+  <ResultScreen v-if="g.resultOpen && g.result" :result="g.result" :next-action="g.nextFromResult" :share-action="g.share" :open-share="g.openShare" />
+  <ShareScreen v-if="g.shareOpen" :session-id="g.shareSessionId" @close="g.shareOpen = false" />
+  <StreakScreen
+    v-if="g.streakOpen && g.prompt"
+    :prompt="g.prompt"
+    :busy="g.busy"
+    :error="g.promptError"
+    @continue="g.continuePlaying()"
+    @bank="g.bankPoints()"
+  />
+  <LeaderboardScreen v-if="g.leaderboardOpen" @close="g.leaderboardOpen = false" />
   <WelcomeScreen
     v-if="g.welcomeOpen"
     :error="g.loginError"

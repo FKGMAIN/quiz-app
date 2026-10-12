@@ -14,16 +14,23 @@ globalThis.defineEventHandler = (fn) => fn
 globalThis.defineNitroPlugin = (fn) => fn
 globalThis.readBody = async (e) => e.body
 globalThis.getQuery = (e) => e.query || {}
+globalThis.getRouterParam = (e, k) => e.params?.[k]
+globalThis.setResponseHeader = () => {}
+globalThis.getRequestURL = () => ({ origin: 'https://play.example' })
 globalThis.useStorage = () => ({ getItem: async () => readFileSync(join(root, 'server/database/seed/puzzles.json'), 'utf8') })
 
 // ---- auto-imported utils become globals, like Nitro does ----
-for (const f of ['db', 'mask', 'scoring', 'seed', 'migrate', 'game']) {
+for (const f of ['db', 'mask', 'time', 'rules', 'scoring', 'seed', 'migrate', 'game', 'shareHtml']) {
   Object.assign(globalThis, await import(pathToFileURL(join(utilsDir, `${f}.ts`)).href))
 }
 
 const handler = async (rel) => (await import(pathToFileURL(join(root, 'server/api', rel)).href)).default
 export const api = {
   session: await handler('session.post.ts'),
+  cont: await handler('session/continue.post.ts'),
+  board: await handler('leaderboard.get.ts'),
+  share: await handler('share/[id].get.ts'),
+  sharePage: (await import(pathToFileURL(join(root, 'server/routes/s/[id].get.ts')).href)).default,
   next: await handler('puzzle/next.get.ts'),
   answer: await handler('puzzle/answer.post.ts'),
   hint: await handler('puzzle/hint.post.ts'),
@@ -31,7 +38,7 @@ export const api = {
   health: await handler('health.get.ts')
 }
 export const post = (fn, body) => fn({ body })
-export const get = (fn, query) => fn({ query })
+export const get = (fn, query, params) => fn({ query, params })
 
 export function freshDbPath(from) {
   const dir = mkdtempSync(join(tmpdir(), 'pl-'))
