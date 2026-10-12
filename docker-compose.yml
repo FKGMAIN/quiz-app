@@ -5,10 +5,6 @@ services:
     restart: unless-stopped
     expose:
       - "3000"
-    environment:
-      - PORT=3000
-      # Same file name the Express version used, so the existing volume's data is upgraded in place.
-      - SQLITE_DB_PATH=/app/data/soccer_puzzle.db
     volumes:
       - sqlite_data:/app/data
 
