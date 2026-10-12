@@ -1,8 +1,10 @@
 # ---- build ----
 FROM node:22-alpine AS build
 WORKDIR /app
-COPY package*.json ./
-RUN if [ -f package-lock.json ]; then npm ci; else npm install; fi
+# The lockfile is skipped on purpose: one generated on macOS lacks the Linux musl rolldown binary
+# that Nuxt 4 needs (npm bug #4828), so resolve dependencies fresh for this platform.
+COPY package.json ./
+RUN npm install --no-audit --no-fund
 COPY . .
 RUN npm run build
 RUN mkdir -p /app/data
